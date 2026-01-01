@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# ImmorTerm - screen-cleanup
+# Remove stale entries from restore-terminals.json
+# Cleans up entries for screen sessions that no longer exist
+
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PROJECT="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]')"
+JSON="$PROJECT_DIR/.vscode/restore-terminals.json"
+LOGS_DIR="$PROJECT_DIR/.vscode/terminals/logs"
+
+[[ -f "$JSON" ]] || exit 0
+
+# Wait for screen to fully terminate after quit command
+sleep 0.3
+
+# Get list of active screen sessions for this project (extract the ID part after PROJECT-)
+active_sessions=$(screen -ls 2>/dev/null | grep -oE "${PROJECT}-[^[:space:]]+" | sed "s/${PROJECT}-//" | sort -u || true)
+
+# Get names from JSON
+names_in_json=$(jq -r '.terminals[].splitTerminals[0].name // empty' "$JSON" 2>/dev/null || true)
+
+for name in $names_in_json; do
+  # If no matching session exists, remove it
+  if ! echo "$active_sessions" | grep -qxF "$name"; then
+    echo "Removing stale entry: $name"
+    tmp="$(mktemp)"
+    jq --arg w "$name" '.terminals = [.terminals[] | select(.splitTerminals[0].name != $w)]' "$JSON" > "$tmp" && mv "$tmp" "$JSON"
+    # Also remove stale log file
+    rm -f "$LOGS_DIR/${PROJECT}-${name}.log" 2>/dev/null || true
+  fi
+done
+
+echo "Cleanup complete"

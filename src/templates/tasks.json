@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ImmorTerm: Cleanup Stale Sessions",
+      "type": "shell",
+      "command": "${workspaceFolder}/.vscode/terminals/screen-cleanup",
+      "group": "none",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "ImmorTerm: Forget Current Terminal",
+      "type": "shell",
+      "command": "${workspaceFolder}/.vscode/terminals/screen-forget",
+      "group": "none",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "ImmorTerm: Reset All Terminals",
+      "type": "shell",
+      "command": "${workspaceFolder}/.vscode/terminals/screen-forget-all",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

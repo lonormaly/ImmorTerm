@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# ImmorTerm - screen-auto
+# Creates or attaches to a screen session for each VS Code terminal
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+PROJECT="$(basename "$PWD" | tr '[:upper:]' '[:lower:]')"
+JSON=".vscode/restore-terminals.json"
+PROJECT_DIR="$PWD"
+LOGS_DIR="$PROJECT_DIR/.vscode/terminals/logs"
+PENDING_DIR="$PROJECT_DIR/.vscode/terminals/pending"
+
+mkdir -p "$PROJECT_DIR/.vscode" "$LOGS_DIR" "$PENDING_DIR"
+[[ -f "$JSON" ]] || echo '{"artificialDelayMilliseconds":800,"terminals":[]}' > "$JSON"
+
+# restored terminal: arg is window name (used as session name)
+if [[ -n "${1:-}" ]]; then
+  WINDOW="$1"
+  SESSION="${PROJECT}-${WINDOW}"
+else
+  # NEW terminal: generate unique ID
+  WINDOW="$$-$(head -c6 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c8)"
+  SESSION="${PROJECT}-${WINDOW}"
+
+  # Create pending file (no contention - each terminal writes its own file)
+  echo "$WINDOW" > "$PENDING_DIR/$WINDOW"
+
+  # Spawn reconciler in background (will add pending entries to JSON)
+  "$PROJECT_DIR/.vscode/terminals/screen-reconcile" &
+fi
+
+LOGFILE="$LOGS_DIR/${SESSION}.log"
+
+# Export project directory BEFORE creating session so shell inherits it
+export SCREEN_PROJECT_DIR="$PROJECT_DIR"
+
+# Print log history before attaching (so it appears in native scroll buffer)
+if [[ -f "$LOGFILE" ]]; then
+  cat "$LOGFILE"
+fi
+
+# Ensure session exists with logging enabled
+if ! screen -S "$SESSION" -Q select . >/dev/null 2>&1; then
+  # Create new detached session with logging and large scrollback buffer (50k lines)
+  # Shell will inherit SCREEN_PROJECT_DIR from this parent process
+  screen -dmS "$SESSION" -c "$PROJECT_DIR/.vscode/terminals/screenrc" -h 50000 -L -Logfile "$LOGFILE"
+fi
+
+# Set VS Code terminal tab name via OSC escape sequence
+printf '\033]0;%s\007' "$WINDOW"
+
+# Attach to the session
+exec screen -xRR -S "$SESSION"

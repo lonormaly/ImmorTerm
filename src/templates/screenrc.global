@@ -1,0 +1,41 @@
+# ImmorTerm - Global Screen Configuration
+# Copy this file to ~/.screenrc
+#
+# This configuration is optimized for VS Code terminal persistence
+# where each terminal has its own screen session.
+
+# Skip the startup license message
+startup_message off
+
+# Disable alternate screen buffer for native VS Code scrolling
+# This allows scrollback to work naturally with VS Code's scroll buffer
+termcapinfo xterm* ti@:te@
+
+# Enable 256 colors and true color support
+term screen-256color
+truecolor on
+
+# Large scrollback buffer (20,000 lines)
+defscrollback 20000
+
+# Minimal status bar - just shows window number and title
+hardstatus alwayslastline
+hardstatus string '%{= kK}%=%n: %t%='
+
+# Disable visual bell
+vbell off
+
+# Auto-detach on hangup (keeps session alive if VS Code closes)
+autodetach on
+
+# Use login shell
+shell -$SHELL
+
+# UTF-8 support
+defutf8 on
+
+# Window navigation shortcuts
+bind n next             # Ctrl-a n = next window
+bind p prev             # Ctrl-a p = previous window
+bind w windowlist -b    # Ctrl-a w = window picker
+bind r title            # Ctrl-a r = rename window

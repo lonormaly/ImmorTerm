@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# ImmorTerm - screen-forget-all
+# Kill ALL screen sessions for this project and clear everything
+#
+# Usage: screen-forget-all
+#
+# WARNING: This kills all screen sessions and deletes all logs!
+
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PROJECT="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]')"
+RESTORE_FILE="$PROJECT_DIR/.vscode/restore-terminals.json"
+LOGS_DIR="$PROJECT_DIR/.vscode/terminals/logs"
+
+echo "Cleaning up all screen sessions for project: $PROJECT"
+
+# FIRST: Clear restore-terminals.json (prevents VS Code from restoring old terminals)
+if [[ -f "$RESTORE_FILE" ]]; then
+  echo '{ "artificialDelayMilliseconds": 800, "terminals": [] }' > "$RESTORE_FILE"
+  echo "Cleared restore-terminals.json"
+fi
+
+# Clean up any stale lock directories
+rm -rf "/tmp/immorterm-${PROJECT}.lock" 2>/dev/null || true
+rm -rf "/tmp/immorterm-${PROJECT}-reconcile.lock" 2>/dev/null || true
+
+# Kill all sessions matching project-* pattern (handles any ID format)
+# Note: || true prevents script exit if grep finds no matches (pipefail)
+screen -ls 2>/dev/null | grep -oE "[0-9]+\\.${PROJECT}-[^[:space:]]+" | while read -r sess; do
+  screen -S "$sess" -X quit 2>/dev/null && echo "Killed: $sess" || true
+done || true
+
+# Wipe dead sessions
+screen -wipe >/dev/null 2>&1 || true
+
+# Brief pause to let screens finish logging
+sleep 0.2
+
+# Delete all log files
+if [[ -d "$LOGS_DIR" ]]; then
+  rm -f "$LOGS_DIR"/*.log 2>/dev/null || true
+  echo "Deleted all log files"
+fi
+
+echo ""
+echo "Done. Close all VS Code terminal tabs manually."
+echo "When you open a new terminal, it will create a fresh screen session."

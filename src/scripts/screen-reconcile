@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# ImmorTerm - screen-reconcile
+# Reconciles pending terminal files into restore-terminals.json
+# Runs in background, handles its own locking to prevent concurrent JSON writes
+
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+PROJECT="$(basename "$PWD" | tr '[:upper:]' '[:lower:]')"
+JSON=".vscode/restore-terminals.json"
+PROJECT_DIR="$PWD"
+PENDING_DIR="$PROJECT_DIR/.vscode/terminals/pending"
+LOCKFILE="/tmp/immorterm-${PROJECT}-reconcile.lock"
+
+# Wait a bit to let multiple terminals queue up their pending files
+sleep 0.3
+
+# Use a simple lockfile - if another reconciler is running, just exit
+# (that one will pick up our pending files too)
+if ! mkdir "$LOCKFILE" 2>/dev/null; then
+  exit 0
+fi
+trap 'rm -rf "$LOCKFILE"' EXIT
+
+# Process all pending files
+for pending_file in "$PENDING_DIR"/*; do
+  [[ -f "$pending_file" ]] || continue
+
+  WINDOW=$(cat "$pending_file")
+
+  # Check if already in JSON (avoid duplicates on restore)
+  if jq -e --arg w "$WINDOW" '.terminals[] | select(.splitTerminals[0].name == $w)' "$JSON" >/dev/null 2>&1; then
+    rm -f "$pending_file"
+    continue
+  fi
+
+  # Add to JSON
+  tmp="$(mktemp)"
+  if jq --arg w "$WINDOW" --arg cmd "exec .vscode/terminals/screen-auto $WINDOW" '
+    .terminals = (.terminals // []) |
+    .terminals += [{"splitTerminals":[{"name":$w,"shellPath":"/bin/zsh","commands":[$cmd]}]}]
+  ' "$JSON" > "$tmp"; then
+    mv "$tmp" "$JSON"
+  else
+    rm -f "$tmp"
+  fi
+
+  # Remove pending file
+  rm -f "$pending_file"
+done
