@@ -37,7 +37,16 @@ When VS Code crashes or restarts:
 
 ## Quick Install
 
-### One-liner (Recommended)
+### Homebrew (macOS/Linux)
+
+```bash
+brew tap lonormaly/tap
+brew install immorterm
+```
+
+Then run `immorterm /path/to/your/project` to set up persistent terminals.
+
+### One-liner
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lonormaly/ImmorTerm/main/install.sh | bash
