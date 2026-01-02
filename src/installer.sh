@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 # ╔════════════════════════════════════════════════════════════════════════════╗
 # ║              ImmorTerm - Terminal Persistence Installer (v1.0)             ║
 # ║                 Multi-Terminal Persistent Sessions Setup                   ║
@@ -11,11 +13,32 @@
 #   - Restore Terminals extension auto-reopens terminals on reload
 #   - Project-local scripts in .vscode/terminals/
 
-set -e
+# Version
+VERSION="1.0.0"
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMMORTERM_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Support both development and Homebrew installation layouts
+if [[ -d "$SCRIPT_DIR/../src/scripts" ]]; then
+    # Development: running from repo (src/installer.sh)
+    IMMORTERM_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+    SCRIPTS_DIR="$IMMORTERM_DIR/src/scripts"
+    TEMPLATES_DIR="$IMMORTERM_DIR/src/templates"
+    EXTENSION_DIR="$IMMORTERM_DIR/src/extension"
+elif [[ -d "$SCRIPT_DIR/scripts" ]]; then
+    # Homebrew: libexec layout (scripts are siblings)
+    IMMORTERM_DIR="$SCRIPT_DIR"
+    SCRIPTS_DIR="$IMMORTERM_DIR/scripts"
+    TEMPLATES_DIR="$IMMORTERM_DIR/templates"
+    EXTENSION_DIR="$IMMORTERM_DIR/extension"
+else
+    # Fallback: assume we're in src/
+    IMMORTERM_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+    SCRIPTS_DIR="$IMMORTERM_DIR/src/scripts"
+    TEMPLATES_DIR="$IMMORTERM_DIR/src/templates"
+    EXTENSION_DIR="$IMMORTERM_DIR/src/extension"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Colors and Formatting
@@ -251,6 +274,19 @@ select_project_directory() {
     print_info "Scripts will be installed in: ${WHITE}.vscode/terminals/${RESET}"
     echo ""
 
+    # If PROJECT_DIR was set via CLI argument, validate and use it
+    if [[ -n "$PROJECT_DIR" ]]; then
+        PROJECT_DIR="${PROJECT_DIR/#\~/$HOME}"
+        if [[ ! -d "$PROJECT_DIR" ]]; then
+            print_error "Directory does not exist: $PROJECT_DIR"
+            exit 1
+        fi
+        echo -e "     ${GREEN}${ICON_FOLDER}${RESET}  Using specified directory: ${WHITE}$PROJECT_DIR${RESET}"
+        PROJECT_NAME=$(basename "$PROJECT_DIR")
+        echo ""
+        return
+    fi
+
     # Check if we're in a git repo or have a .vscode folder
     local suggested_dir="$PWD"
     if [[ -d "$PWD/.vscode" ]] || [[ -d "$PWD/.git" ]]; then
@@ -356,7 +392,7 @@ install_global_screenrc() {
 
     ask_continue
     if [[ "$USER_CHOICE" == "yes" ]]; then
-        cp "$IMMORTERM_DIR/src/templates/screenrc.global" ~/.screenrc
+        cp "$TEMPLATES_DIR/screenrc.global" ~/.screenrc
         print_success "Created ~/.screenrc"
         INSTALLED_SCREENRC=true
     elif [[ "$USER_CHOICE" == "skip" ]]; then
@@ -398,12 +434,12 @@ install_project_scripts() {
         mkdir -p "$terminals_dir" "$logs_dir" "$pending_dir"
 
         # Copy all scripts from ImmorTerm
-        cp "$IMMORTERM_DIR/src/scripts/screen-auto" "$terminals_dir/"
-        cp "$IMMORTERM_DIR/src/scripts/screen-reconcile" "$terminals_dir/"
-        cp "$IMMORTERM_DIR/src/scripts/screen-cleanup" "$terminals_dir/"
-        cp "$IMMORTERM_DIR/src/scripts/screen-forget" "$terminals_dir/"
-        cp "$IMMORTERM_DIR/src/scripts/screen-forget-all" "$terminals_dir/"
-        cp "$IMMORTERM_DIR/src/templates/screenrc.project" "$terminals_dir/screenrc"
+        cp "$SCRIPTS_DIR/screen-auto" "$terminals_dir/"
+        cp "$SCRIPTS_DIR/screen-reconcile" "$terminals_dir/"
+        cp "$SCRIPTS_DIR/screen-cleanup" "$terminals_dir/"
+        cp "$SCRIPTS_DIR/screen-forget" "$terminals_dir/"
+        cp "$SCRIPTS_DIR/screen-forget-all" "$terminals_dir/"
+        cp "$TEMPLATES_DIR/screenrc.project" "$terminals_dir/screenrc"
 
         # Make scripts executable
         chmod +x "$terminals_dir/screen-auto"
@@ -415,7 +451,7 @@ install_project_scripts() {
         # Create restore-terminals.json if it doesn't exist
         local restore_file="$PROJECT_DIR/.vscode/restore-terminals.json"
         if [[ ! -f "$restore_file" ]]; then
-            cp "$IMMORTERM_DIR/src/templates/restore-terminals.json" "$restore_file"
+            cp "$TEMPLATES_DIR/restore-terminals.json" "$restore_file"
         fi
 
         print_success "Created .vscode/terminals/ with all scripts"
@@ -457,7 +493,7 @@ install_vscode_tasks() {
             print_info "Add these tasks to your existing configuration:"
         fi
 
-        cp "$IMMORTERM_DIR/src/templates/tasks.json" "$tasks_file"
+        cp "$TEMPLATES_DIR/tasks.json" "$tasks_file"
 
         print_success "Created .vscode/tasks.json"
     elif [[ "$USER_CHOICE" == "skip" ]]; then
@@ -527,7 +563,7 @@ install_vscode_settings() {
                         "terminal.integrated.profiles.osx": ((.["terminal.integrated.profiles.osx"] // {}) + {
                             "screen": {
                                 "path": "/bin/zsh",
-                                "args": ["-c", "exec .vscode/terminals/screen-auto"],
+                                "args": ["-lc", "exec .vscode/terminals/screen-auto"],
                                 "icon": "terminal"
                             },
                             "zsh (no screen)": {
@@ -538,7 +574,7 @@ install_vscode_settings() {
                         "terminal.integrated.profiles.linux": ((.["terminal.integrated.profiles.linux"] // {}) + {
                             "screen": {
                                 "path": "/bin/bash",
-                                "args": ["-c", "exec .vscode/terminals/screen-auto"],
+                                "args": ["-lc", "exec .vscode/terminals/screen-auto"],
                                 "icon": "terminal"
                             },
                             "bash (no screen)": {
@@ -559,7 +595,7 @@ install_vscode_settings() {
     "terminal.integrated.profiles.osx": {
         "screen": {
             "path": "/bin/zsh",
-            "args": ["-c", "exec .vscode/terminals/screen-auto"],
+            "args": ["-lc", "exec .vscode/terminals/screen-auto"],
             "icon": "terminal"
         },
         "zsh (no screen)": {
@@ -570,7 +606,7 @@ install_vscode_settings() {
     "terminal.integrated.profiles.linux": {
         "screen": {
             "path": "/bin/bash",
-            "args": ["-c", "exec .vscode/terminals/screen-auto"],
+            "args": ["-lc", "exec .vscode/terminals/screen-auto"],
             "icon": "terminal"
         },
         "bash (no screen)": {
@@ -587,8 +623,9 @@ SETTINGS_JSON
         # Update keybindings.json
         # ─────────────────────────────────────────────────────────────────
         if ! $keybindings_ok; then
-            local keybindings_content
-            keybindings_content=$(cat << 'KEYBINDINGS'
+            local keybindings_content keybindings_tmp
+            keybindings_tmp=$(mktemp)
+            cat > "$keybindings_tmp" << 'KEYBINDINGS'
 [
     // ════════════════════════════════════════════════════════════════════
     // ImmorTerm - Screen Terminal Integration Shortcuts
@@ -607,11 +644,12 @@ SETTINGS_JSON
     },
 
     // Kill current terminal and cleanup (Ctrl+Shift+Q Q)
-    // Quits screen session and removes from restore list
+    // Runs screen-forget INSIDE the terminal so $STY is available
+    // Uses git root to work from any subdirectory
     {
         "key": "ctrl+shift+q q",
         "command": "workbench.action.terminal.sendSequence",
-        "args": { "text": "\u0001:quit\r" },
+        "args": { "text": "$(git rev-parse --show-toplevel)/.vscode/terminals/screen-forget\n" },
         "when": "terminalFocus"
     },
 
@@ -676,7 +714,8 @@ SETTINGS_JSON
     }
 ]
 KEYBINDINGS
-)
+            keybindings_content=$(cat "$keybindings_tmp")
+            rm -f "$keybindings_tmp"
 
             if [[ -f "$keybindings_file" ]]; then
                 backup_file "$keybindings_file"
@@ -800,10 +839,9 @@ install_name_sync_extension() {
         mkdir -p "$ext_dir/src"
 
         # Copy extension files from ImmorTerm
-        cp "$IMMORTERM_DIR/src/extension/package.json" "$ext_dir/"
-        cp "$IMMORTERM_DIR/src/extension/tsconfig.json" "$ext_dir/"
-        mkdir -p "$ext_dir/src"
-        cp "$IMMORTERM_DIR/src/extension/src/extension.ts" "$ext_dir/src/"
+        cp "$EXTENSION_DIR/package.json" "$ext_dir/"
+        cp "$EXTENSION_DIR/tsconfig.json" "$ext_dir/"
+        cp "$EXTENSION_DIR/src/extension.ts" "$ext_dir/src/"
 
         print_success "Created extension files"
 
@@ -822,7 +860,7 @@ install_name_sync_extension() {
                 bun run compile --silent 2>/dev/null
             else
                 print_warning "Neither npm nor bun found - please compile manually"
-                return 1
+                exit 1
             fi
         )
 
@@ -1009,6 +1047,42 @@ run_installation() {
     print_summary
 }
 
+show_version() {
+    echo "ImmorTerm v${VERSION}"
+    echo "Terminals that survive VS Code crashes"
+    echo ""
+    echo "https://github.com/lonormaly/ImmorTerm"
+}
+
+show_help() {
+    echo "ImmorTerm v${VERSION} - Persistent terminal sessions for VS Code"
+    echo ""
+    echo "USAGE:"
+    echo "    immorterm [OPTIONS] [PROJECT_DIR]"
+    echo ""
+    echo "ARGUMENTS:"
+    echo "    PROJECT_DIR    Target project directory (default: current directory)"
+    echo ""
+    echo "OPTIONS:"
+    echo "    -h, --help     Show this help message"
+    echo "    -v, --version  Show version information"
+    echo ""
+    echo "EXAMPLES:"
+    echo "    immorterm                  # Install in current directory"
+    echo "    immorterm .                # Install in current directory"
+    echo "    immorterm ~/my-project     # Install in specific project"
+    echo ""
+    echo "WHAT IT DOES:"
+    echo "    1. Installs GNU Screen (if needed)"
+    echo "    2. Configures persistent terminal sessions"
+    echo "    3. Sets up VS Code integration"
+    echo "    4. Installs terminal name sync extension"
+    echo ""
+    echo "After installation, your terminals will survive VS Code crashes!"
+    echo ""
+    echo "For more info: https://github.com/lonormaly/ImmorTerm"
+}
+
 main() {
     # Part 1: Header and The Problem
     clear
@@ -1052,4 +1126,37 @@ main() {
     run_installation
 }
 
-main "$@"
+# Parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -v|--version)
+                show_version
+                exit 0
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            -*)
+                echo "Unknown option: $1"
+                echo "Use --help for usage information"
+                exit 1
+                ;;
+            *)
+                # Positional argument = project directory
+                if [[ -z "$PROJECT_DIR" ]]; then
+                    PROJECT_DIR="$1"
+                else
+                    echo "Error: Multiple project directories specified"
+                    exit 1
+                fi
+                ;;
+        esac
+        shift
+    done
+}
+
+# Entry point
+parse_args "$@"
+main
