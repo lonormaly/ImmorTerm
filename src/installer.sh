@@ -83,6 +83,7 @@ USER_CHOICE=""
 # Project directory (where to install .vscode/terminals/)
 PROJECT_DIR=""
 PROJECT_NAME=""
+UNINSTALL_MODE=false
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OS Detection
@@ -1025,6 +1026,97 @@ print_summary() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Uninstall
+# ─────────────────────────────────────────────────────────────────────────────
+
+uninstall_project() {
+    echo ""
+    echo -e "${RED}${BOLD}"
+    echo "  ╔════════════════════════════════════════════════════════════════╗"
+    echo "  ║                                                                ║"
+    echo -e "  ║   ${WHITE}🗑️  ImmorTerm Uninstaller  🗑️${RED}                               ║"
+    echo "  ║                                                                ║"
+    echo "  ╚════════════════════════════════════════════════════════════════╝"
+    echo -e "${RESET}"
+
+    # Set project directory
+    if [[ -z "$PROJECT_DIR" ]]; then
+        PROJECT_DIR="$(pwd)"
+    fi
+
+    # Resolve to absolute path
+    PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd)" || {
+        echo -e "${RED}Error: Directory not found: $PROJECT_DIR${RESET}"
+        exit 1
+    }
+
+    PROJECT_NAME="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]')"
+
+    echo -e "  ${WHITE}Project:${RESET} $PROJECT_DIR"
+    echo ""
+
+    # Check if ImmorTerm is installed
+    if [[ ! -d "$PROJECT_DIR/.vscode/terminals" ]]; then
+        echo -e "${YELLOW}  ImmorTerm is not installed in this project.${RESET}"
+        echo ""
+        exit 0
+    fi
+
+    echo -e "${WHITE}  This will:${RESET}"
+    echo -e "     ${RED}•${RESET} Kill all screen sessions for this project"
+    echo -e "     ${RED}•${RESET} Remove .vscode/terminals/ directory"
+    echo -e "     ${RED}•${RESET} Remove restore-terminals.json"
+    echo ""
+    echo -e "${YELLOW}  Note: VS Code settings, keybindings, and tasks will remain.${RESET}"
+    echo -e "${DIM}  (These are shared and may be used by other projects)${RESET}"
+    echo ""
+
+    echo -e -n "${YELLOW}  Are you sure you want to uninstall? [y/N] ${RESET}"
+    read -r confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo -e "${DIM}  Uninstall cancelled.${RESET}"
+        exit 0
+    fi
+
+    echo ""
+
+    # Step 1: Kill screen sessions for this project
+    echo -e "  ${CYAN}[1/3]${RESET} Killing screen sessions..."
+    local sessions
+    sessions=$(screen -ls 2>/dev/null | grep -oE "[0-9]+\.${PROJECT_NAME}-[0-9]+-[A-Za-z0-9]+" || true)
+    if [[ -n "$sessions" ]]; then
+        local count=0
+        while IFS= read -r session; do
+            screen -S "$session" -X quit 2>/dev/null && ((count++)) || true
+        done <<< "$sessions"
+        echo -e "        ${GREEN}✓${RESET} Killed $count screen session(s)"
+    else
+        echo -e "        ${DIM}No active sessions found${RESET}"
+    fi
+
+    # Step 2: Remove .vscode/terminals/
+    echo -e "  ${CYAN}[2/3]${RESET} Removing .vscode/terminals/..."
+    if [[ -d "$PROJECT_DIR/.vscode/terminals" ]]; then
+        rm -rf "$PROJECT_DIR/.vscode/terminals"
+        echo -e "        ${GREEN}✓${RESET} Removed .vscode/terminals/"
+    fi
+
+    # Step 3: Remove restore-terminals.json
+    echo -e "  ${CYAN}[3/3]${RESET} Removing restore-terminals.json..."
+    if [[ -f "$PROJECT_DIR/.vscode/restore-terminals.json" ]]; then
+        rm -f "$PROJECT_DIR/.vscode/restore-terminals.json"
+        echo -e "        ${GREEN}✓${RESET} Removed restore-terminals.json"
+    fi
+
+    echo ""
+    echo -e "${GREEN}${BOLD}  ✓ ImmorTerm uninstalled from this project${RESET}"
+    echo ""
+    echo -e "${DIM}  To reinstall: immorterm $PROJECT_DIR${RESET}"
+    echo ""
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1070,13 +1162,15 @@ show_help() {
     echo "    PROJECT_DIR    Target project directory (default: current directory)"
     echo ""
     echo "OPTIONS:"
-    echo "    -h, --help     Show this help message"
-    echo "    -v, --version  Show version information"
+    echo "    -h, --help       Show this help message"
+    echo "    -v, --version    Show version information"
+    echo "    --uninstall      Remove ImmorTerm from a project"
     echo ""
     echo "EXAMPLES:"
-    echo "    immorterm                  # Install in current directory"
-    echo "    immorterm .                # Install in current directory"
-    echo "    immorterm ~/my-project     # Install in specific project"
+    echo "    immorterm                      # Install in current directory"
+    echo "    immorterm ~/my-project         # Install in specific project"
+    echo "    immorterm --uninstall          # Uninstall from current directory"
+    echo "    immorterm --uninstall ~/proj   # Uninstall from specific project"
     echo ""
     echo "WHAT IT DOES:"
     echo "    1. Installs GNU Screen (if needed)"
@@ -1144,6 +1238,9 @@ parse_args() {
                 show_help
                 exit 0
                 ;;
+            --uninstall)
+                UNINSTALL_MODE=true
+                ;;
             -*)
                 echo "Unknown option: $1"
                 echo "Use --help for usage information"
@@ -1165,4 +1262,9 @@ parse_args() {
 
 # Entry point
 parse_args "$@"
-main
+
+if [[ "$UNINSTALL_MODE" == true ]]; then
+    uninstall_project
+else
+    main
+fi

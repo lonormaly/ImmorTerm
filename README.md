@@ -40,11 +40,14 @@ When VS Code crashes or restarts:
 ### Homebrew (macOS/Linux)
 
 ```bash
+# Install once (adds immorterm CLI + GNU Screen)
 brew tap lonormaly/tap
 brew install immorterm
-```
 
-Then run `immorterm /path/to/your/project` to set up persistent terminals.
+# Enable for each project you want persistent terminals
+immorterm ~/Development/project1
+immorterm ~/Development/project2
+```
 
 ### One-liner
 
@@ -57,15 +60,21 @@ curl -fsSL https://raw.githubusercontent.com/lonormaly/ImmorTerm/main/install.sh
 ```bash
 git clone https://github.com/lonormaly/ImmorTerm.git
 cd ImmorTerm
-./src/installer.sh
+./src/installer.sh /path/to/your/project
 ```
 
-The interactive installer will:
-1. Install GNU Screen (if needed)
-2. Set up project-local scripts in `.vscode/terminals/`
-3. Configure VS Code settings and keybindings
-4. Install the Restore Terminals extension
-5. Install the Terminal Name Sync extension
+### What gets installed where?
+
+| Component | Location | Frequency |
+|-----------|----------|-----------|
+| `immorterm` CLI | System PATH | Once per machine |
+| GNU Screen | System PATH | Once per machine |
+| VS Code extension | `~/.vscode/extensions/` | Once per machine |
+| `~/.screenrc` | Home directory | Once per machine |
+| `.vscode/terminals/` | Project directory | **Per project** |
+| `restore-terminals.json` | Project directory | **Per project** |
+
+Each project has its own isolated terminal sessions. Opening Project A gives you Project A's terminals, not Project B's.
 
 ---
 
@@ -218,10 +227,60 @@ Then close all terminal tabs manually and open new ones.
 
 ## Uninstallation
 
-1. Run `screen-forget-all` to kill all sessions
-2. Delete `.vscode/terminals/` directory
-3. Remove terminal profile from VS Code settings
-4. Uninstall extensions if desired
+### Remove from a single project
+
+```bash
+# Easy way - use the uninstall command
+immorterm --uninstall
+
+# Or specify a project
+immorterm --uninstall ~/Development/my-project
+```
+
+This will:
+- Kill all screen sessions for the project
+- Remove `.vscode/terminals/` directory
+- Remove `restore-terminals.json`
+
+VS Code settings, keybindings, and tasks are left intact (they're shared across projects).
+
+### Full uninstall (all projects + global)
+
+```bash
+# 1. Kill ALL ImmorTerm screen sessions
+screen -ls | grep -oE '[0-9]+\.[a-z]+-[0-9]+-[A-Za-z0-9]+' | xargs -I {} screen -S {} -X quit
+
+# 2. Remove global screenrc (only if ImmorTerm created it)
+# Check first: cat ~/.screenrc | head -5
+# If it says "ImmorTerm" or you didn't have one before, remove it:
+rm -f ~/.screenrc
+
+# 3. Uninstall Homebrew package (if installed via brew)
+brew uninstall immorterm
+brew untap lonormaly/tap
+
+# 4. Uninstall VS Code extensions
+code --uninstall-extension ethansk.restore-terminals
+code --uninstall-extension immorterm.terminal-name-sync
+
+# 5. Remove from each project (repeat for each)
+rm -rf /path/to/project/.vscode/terminals/
+rm -f /path/to/project/.vscode/restore-terminals.json
+```
+
+### Restore VS Code config files
+
+The installer creates backups before modifying VS Code config files:
+- `settings.json.backup.YYYYMMDD_HHMMSS`
+- `keybindings.json.backup.YYYYMMDD_HHMMSS`
+- `tasks.json.backup.YYYYMMDD_HHMMSS`
+- `.zshrc.backup.YYYYMMDD_HHMMSS` (if zsh helpers were installed)
+
+To restore, find the backup in the same directory and rename it back.
+
+### Restore original VS Code terminal behavior
+
+After uninstalling, your terminals will work exactly as they did before—no screen wrapping, no persistence. If VS Code crashes, terminals are lost (the default behavior).
 
 ---
 
