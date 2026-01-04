@@ -87,9 +87,37 @@ The interactive installer will:
 | Shortcut | Action |
 |----------|--------|
 | `Shift+Up/Down` | Navigate between terminal tabs |
-| `Ctrl+Shift+Q Q` | Close terminal properly (quits screen session) |
+| `Ctrl+Shift+Q Q` | Close terminal properly (quits screen immediately) |
 | `Ctrl+Shift+Q A` | Close ALL terminals (reset everything) |
 | `Ctrl+Shift+D` | Detach from screen (session keeps running) |
+
+---
+
+## Terminal Close Behavior
+
+ImmorTerm handles different close scenarios to balance convenience with crash protection:
+
+| Scenario | What Happens | Delay |
+|----------|--------------|-------|
+| **Ctrl+Shift+Q Q** | Screen killed + JSON updated immediately | None |
+| **Click X button** | Screen killed + JSON updated after delay | 60 seconds |
+| **Close VS Code normally** | Terminals preserved for next session | — |
+| **VS Code crashes** | Terminals preserved (auto-restore on restart) | — |
+
+### Why the 60-second delay for X button?
+
+When you click the X button on a terminal tab, ImmorTerm waits 60 seconds before cleaning up. This protects against accidental data loss:
+
+- **If VS Code quits** (normal close or crash) during those 60 seconds → cleanup timer dies with VS Code → **terminals survive** for next session
+- **If VS Code stays open** → cleanup executes after 60 seconds → screen killed + JSON updated
+
+This means if you quit VS Code within 60 seconds of clicking X, your terminal will be restored on next launch.
+
+### Recommended workflows
+
+- **Intentional close**: Use `Ctrl+Shift+Q Q` for instant cleanup
+- **Quick close**: Click X (cleanup happens in background after 60s)
+- **Temporary close**: Use `Ctrl+Shift+D` to detach (screen keeps running)
 
 ---
 

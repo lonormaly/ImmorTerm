@@ -2,7 +2,11 @@
 # This file is placed in {project}/.vscode/terminals/screenrc
 
 # Disable alternate screen buffer for native VS Code scrolling
-termcapinfo xterm* ti@:te@
+# Enable dynamic terminal title updates (forward OSC sequences to VS Code)
+termcapinfo xterm* ti@:te@:hs:ts=\E]0;:fs=\007:ds=\E]0;\007
+
+# Allow programs inside screen to dynamically change the window title
+defdynamictitle on
 
 # Show status bar at bottom
 hardstatus alwayslastline
