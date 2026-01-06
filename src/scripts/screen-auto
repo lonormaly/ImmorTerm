@@ -57,20 +57,10 @@ LOGFILE="$LOGS_DIR/${SESSION}.log"
 export SCREEN_PROJECT_DIR="$PROJECT_DIR"
 
 # Print log history before attaching (so it appears in native scroll buffer)
-# SKIP if terminal has a Claude session - Claude has its own conversation history
-HAS_CLAUDE_SESSION=false
-if [[ -n "${1:-}" ]]; then
-  EXISTING_CLAUDE_ID=$(jq -r --arg wid "$WINDOW" \
-    '.terminals[]?.splitTerminals[]? | select(.windowId == $wid) | .claudeSessionId // empty' \
-    "$JSON" 2>/dev/null)
-  if [[ -n "$EXISTING_CLAUDE_ID" ]]; then
-    HAS_CLAUDE_SESSION=true
-    debug "Skipping log restore - Claude session will provide history"
-  fi
-fi
-
-if [[ -f "$LOGFILE" ]] && [[ "$HAS_CLAUDE_SESSION" == "false" ]]; then
-  cat "$LOGFILE"
+# Limit to last 5000 lines to prevent VS Code crashes on large logs
+LOG_LINES=5000
+if [[ -f "$LOGFILE" ]]; then
+  tail -n "$LOG_LINES" "$LOGFILE"
 fi
 
 # Check if session exists or needs to be created

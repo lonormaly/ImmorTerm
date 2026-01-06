@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Improved session matching accuracy using conversation content analysis
 - Session associations now clear automatically when Claude Code exits, preventing outdated connections
-- **Smart Log Restoration**: Terminals with Claude sessions skip loading log history on restore (Claude maintains its own conversation context)
+- **Smart Log Restoration**: Log loading now limited to last 5000 lines to prevent VS Code crashes on large logs (300MB+ Claude sessions)
 
 ### Technical
 - New modules: `claude-sync.ts`, `json-utils.ts`, `terminal-matching.ts`
