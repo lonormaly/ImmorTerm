@@ -44,6 +44,9 @@ function fixClaudeEmojiCorruption(title: string): string {
 export const terminalWindowIds = new Map<vscode.Terminal, string>();
 export const terminalLastNames = new Map<vscode.Terminal, string>();
 
+// Set to track terminals with pending fixes (to avoid race conditions)
+const pendingFixes = new Set<vscode.Terminal>();
+
 export function initTerminalMatching(project: string, logger: (message: string) => void) {
     projectName = project;
     logFn = logger;
@@ -180,16 +183,18 @@ export function tryMatchTerminalToWindowId(terminal: vscode.Terminal) {
 
 /**
  * Sync terminal name to both JSON and screen title
+ * @param terminal - The VS Code terminal
+ * @param overrideName - Optional name to use instead of terminal.name (for corruption fixes)
  */
-export function syncTerminalToScreenAndJson(terminal: vscode.Terminal): boolean {
+export function syncTerminalToScreenAndJson(terminal: vscode.Terminal, overrideName?: string): boolean {
     const windowId = terminalWindowIds.get(terminal);
     if (!windowId) {
         logFn(`No window ID for "${terminal.name}" - skipping`);
         return false;
     }
 
-    // Fix Claude's ✳ emoji corruption before saving
-    const name = fixClaudeEmojiCorruption(terminal.name);
+    // Use override name or fix corruption from terminal.name
+    const name = overrideName || fixClaudeEmojiCorruption(terminal.name);
     logFn(`Syncing "${name}" (window ${windowId})`);
 
     updateJsonNameAndCommand(windowId, name);
@@ -213,15 +218,52 @@ export function syncTerminalToScreenAndJson(terminal: vscode.Terminal): boolean 
  * Check if terminal name changed and sync if needed
  */
 export function checkTerminalNameChange(terminal: vscode.Terminal): boolean {
-    const lastName = terminalLastNames.get(terminal);
-    // Fix Claude's emoji corruption for comparison
-    const currentName = fixClaudeEmojiCorruption(terminal.name);
+    // Skip if we're waiting for this terminal's fix to take effect
+    if (pendingFixes.has(terminal)) {
+        return false;
+    }
 
+    const lastName = terminalLastNames.get(terminal);
+    const currentName = terminal.name;
+
+    // Check if name is corrupted (starts with "3 " from ✳ corruption)
+    const fixedName = fixClaudeEmojiCorruption(currentName);
+
+    if (fixedName !== currentName) {
+        // Corruption detected! Need to fix VS Code's terminal title
+        logFn(`Corruption detected: "${currentName}" → fixing to "${fixedName}"`);
+
+        // Mark as pending to avoid re-triggering
+        pendingFixes.add(terminal);
+
+        // Send ASCII-only title escape sequence through printf
+        // This goes through screen but since it's ASCII, won't be corrupted
+        // The escape sequence \e]0;...\a sets the terminal title
+        const safeTitle = fixedName.replace(/'/g, "'\\''"); // Escape single quotes
+        terminal.sendText(`printf '\\e]0;${safeTitle}\\a'`, true);
+
+        // Update tracking with fixed name
+        terminalLastNames.set(terminal, fixedName);
+
+        // Also sync to JSON and screen session
+        syncTerminalToScreenAndJson(terminal, fixedName);
+
+        // Clear pending after delay to allow title update to propagate
+        setTimeout(() => {
+            pendingFixes.delete(terminal);
+            logFn(`Cleared pending fix for terminal`);
+        }, 1000);
+
+        return true;
+    }
+
+    // Normal name change (not corruption)
     if (lastName !== undefined && lastName !== currentName) {
         logFn(`Name changed "${lastName}" → "${currentName}"`);
         terminalLastNames.set(terminal, currentName);
         syncTerminalToScreenAndJson(terminal);
         return true;
     }
+
     return false;
 }
