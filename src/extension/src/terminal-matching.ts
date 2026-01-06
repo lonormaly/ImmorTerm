@@ -15,6 +15,31 @@ import {
 let projectName: string;
 let logFn: (message: string) => void = console.log;
 
+/**
+ * Fix Claude Code's ✳ emoji corruption from GNU Screen
+ *
+ * Claude Code uses ✳ (U+2733, UTF-8: E2 9C B3) as title prefix.
+ * Screen drops the middle byte, outputting just B3 which displays as "3" or "³".
+ *
+ * This only affects programmatic title changes via OSC escape sequences.
+ * Manual renames work fine since they bypass screen's title handling.
+ */
+function fixClaudeEmojiCorruption(title: string): string {
+    // "3 " at start (from ✳ corruption) → "* "
+    if (/^3\s+/.test(title)) {
+        const fixed = title.replace(/^3\s+/, '* ');
+        logFn(`Fixed Claude emoji corruption: "${title}" → "${fixed}"`);
+        return fixed;
+    }
+    // "³ " at start (from ✳ corruption) → "* "
+    if (/^³\s+/.test(title)) {
+        const fixed = title.replace(/^³\s+/, '* ');
+        logFn(`Fixed Claude emoji corruption: "${title}" → "${fixed}"`);
+        return fixed;
+    }
+    return title;
+}
+
 // Maps to track terminal state
 export const terminalWindowIds = new Map<vscode.Terminal, string>();
 export const terminalLastNames = new Map<vscode.Terminal, string>();
@@ -163,7 +188,8 @@ export function syncTerminalToScreenAndJson(terminal: vscode.Terminal): boolean 
         return false;
     }
 
-    const name = terminal.name;
+    // Fix Claude's ✳ emoji corruption before saving
+    const name = fixClaudeEmojiCorruption(terminal.name);
     logFn(`Syncing "${name}" (window ${windowId})`);
 
     updateJsonNameAndCommand(windowId, name);
@@ -188,9 +214,12 @@ export function syncTerminalToScreenAndJson(terminal: vscode.Terminal): boolean 
  */
 export function checkTerminalNameChange(terminal: vscode.Terminal): boolean {
     const lastName = terminalLastNames.get(terminal);
-    if (lastName !== undefined && lastName !== terminal.name) {
-        logFn(`Name changed "${lastName}" → "${terminal.name}"`);
-        terminalLastNames.set(terminal, terminal.name);
+    // Fix Claude's emoji corruption for comparison
+    const currentName = fixClaudeEmojiCorruption(terminal.name);
+
+    if (lastName !== undefined && lastName !== currentName) {
+        logFn(`Name changed "${lastName}" → "${currentName}"`);
+        terminalLastNames.set(terminal, currentName);
         syncTerminalToScreenAndJson(terminal);
         return true;
     }
