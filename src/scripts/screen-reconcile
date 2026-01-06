@@ -26,19 +26,23 @@ trap 'rm -rf "$LOCKFILE"' EXIT
 for pending_file in "$PENDING_DIR"/*; do
   [[ -f "$pending_file" ]] || continue
 
-  WINDOW=$(cat "$pending_file")
+  # Read pending file: "windowId displayName"
+  read -r WINDOW DISPLAY_NAME < "$pending_file"
+  # Fallback if no display name (old format)
+  [[ -z "$DISPLAY_NAME" ]] && DISPLAY_NAME="$WINDOW"
 
-  # Check if already in JSON (avoid duplicates on restore)
-  if jq -e --arg w "$WINDOW" '.terminals[] | select(.splitTerminals[0].name == $w)' "$JSON" >/dev/null 2>&1; then
+  # Check if windowId already in JSON (avoid duplicates on restore)
+  if jq -e --arg w "$WINDOW" '.terminals[] | select(.splitTerminals[0].windowId == $w)' "$JSON" >/dev/null 2>&1; then
     rm -f "$pending_file"
     continue
   fi
 
-  # Add to JSON
+  # Add to JSON with friendly name and windowId
+  # Command includes display name so screen-auto uses it on restore
   tmp="$(mktemp)"
-  if jq --arg w "$WINDOW" --arg cmd "exec .vscode/terminals/screen-auto $WINDOW" '
+  if jq --arg name "$DISPLAY_NAME" --arg wid "$WINDOW" --arg cmd "exec .vscode/terminals/screen-auto $WINDOW $DISPLAY_NAME" '
     .terminals = (.terminals // []) |
-    .terminals += [{"splitTerminals":[{"name":$w,"shellPath":"/bin/zsh","commands":[$cmd]}]}]
+    .terminals += [{"splitTerminals":[{"name":$name,"windowId":$wid,"shellPath":"/bin/zsh","commands":[$cmd]}]}]
   ' "$JSON" > "$tmp"; then
     mv "$tmp" "$JSON"
   else

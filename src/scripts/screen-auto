@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# ImmorTerm - screen-auto
-# Creates or attaches to a screen session for each VS Code terminal
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
@@ -13,20 +11,44 @@ PENDING_DIR="$PROJECT_DIR/.vscode/terminals/pending"
 mkdir -p "$PROJECT_DIR/.vscode" "$LOGS_DIR" "$PENDING_DIR"
 [[ -f "$JSON" ]] || echo '{"artificialDelayMilliseconds":800,"terminals":[]}' > "$JSON"
 
+# Debug log for auto-resume troubleshooting
+DEBUG_LOG="$PROJECT_DIR/.vscode/terminals/logs/auto-resume.log"
+debug() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$DEBUG_LOG"; }
+
 # restored terminal: arg is window name (used as session name)
+# optional second arg is display name (friendly name for tab)
 if [[ -n "${1:-}" ]]; then
   WINDOW="$1"
+  DISPLAY_NAME="${2:-$WINDOW}"  # Use display name if provided, else windowId
   SESSION="${PROJECT}-${WINDOW}"
+  debug "RESTORED terminal: window=$WINDOW, display=$DISPLAY_NAME"
 else
   # NEW terminal: generate unique ID
   WINDOW="$$-$(head -c6 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c8)"
   SESSION="${PROJECT}-${WINDOW}"
 
-  # Create pending file (no contention - each terminal writes its own file)
-  echo "$WINDOW" > "$PENDING_DIR/$WINDOW"
+  # Calculate next friendly name (pax-1, pax-2, etc.)
+  # Find highest existing N and add 1
+  if [[ -f "$JSON" ]]; then
+    MAX_N=$(jq -r --arg p "${PROJECT}-" '.terminals[]?.splitTerminals[]?.name // empty | select(startswith($p)) | ltrimstr($p) | tonumber' "$JSON" 2>/dev/null | sort -n | tail -1)
+    NEXT_N=$((${MAX_N:-0} + 1))
+  else
+    NEXT_N=1
+  fi
+  DISPLAY_NAME="${PROJECT}-${NEXT_N}"
+
+  # Create pending file with BOTH windowId and displayName
+  # Format: "windowId displayName"
+  echo "$WINDOW $DISPLAY_NAME" > "$PENDING_DIR/$WINDOW"
 
   # Spawn reconciler in background (will add pending entries to JSON)
   "$PROJECT_DIR/.vscode/terminals/screen-reconcile" &
+
+  # DISABLED: Log cleanup causing issues, will tackle later
+  # "$PROJECT_DIR/.vscode/terminals/log-cleanup" >/dev/null 2>&1 &
+
+  # DISABLED: Claude session sync moved to VS Code extension (terminal-name-sync)
+  # "$PROJECT_DIR/.vscode/terminals/claude-session-sync" >/dev/null 2>&1 &
 fi
 
 LOGFILE="$LOGS_DIR/${SESSION}.log"
@@ -39,15 +61,39 @@ if [[ -f "$LOGFILE" ]]; then
   cat "$LOGFILE"
 fi
 
-# Ensure session exists with logging enabled
+# Check if session exists or needs to be created
+SESSION_IS_NEW=false
 if ! screen -S "$SESSION" -Q select . >/dev/null 2>&1; then
+  SESSION_IS_NEW=true
+  debug "SESSION_IS_NEW=true for $SESSION (creating new screen)"
   # Create new detached session with logging and large scrollback buffer (50k lines)
   # Shell will inherit SCREEN_PROJECT_DIR from this parent process
   screen -dmS "$SESSION" -c "$PROJECT_DIR/.vscode/terminals/screenrc" -h 50000 -L -Logfile "$LOGFILE"
+
+  # If this is a RESTORED terminal (has windowId arg) and session was lost (laptop restart),
+  # check if there's a Claude session to auto-resume
+  if [[ -n "${1:-}" ]]; then
+    CLAUDE_SESSION_ID=$(jq -r --arg wid "$WINDOW" \
+      '.terminals[]?.splitTerminals[]? | select(.windowId == $wid) | .claudeSessionId // empty' \
+      "$JSON" 2>/dev/null)
+    debug "Checking auto-resume: window=$WINDOW, claudeSessionId=${CLAUDE_SESSION_ID:-<none>}"
+
+    if [[ -n "$CLAUDE_SESSION_ID" ]]; then
+      debug "AUTO-RESUME: sending 'claude --resume $CLAUDE_SESSION_ID' to $SESSION"
+      # Auto-resume Claude session in this screen
+      screen -S "$SESSION" -X stuff "claude --resume $CLAUDE_SESSION_ID\n"
+    else
+      debug "No claudeSessionId found for $WINDOW, skipping auto-resume"
+    fi
+  fi
+else
+  debug "SESSION_IS_NEW=false for $SESSION (attaching to existing)"
 fi
 
-# Set VS Code terminal tab name via OSC escape sequence
-printf '\033]0;%s\007' "$WINDOW"
+# Set VS Code terminal tab name BEFORE exec screen
+# OSC 0 sequence sets terminal title - must be sent before screen takes over
+# otherwise VS Code shows "screen-5.0.1" (the process name)
+printf '\033]0;%s\007' "$DISPLAY_NAME"
 
 # Attach to the session
 exec screen -xRR -S "$SESSION"
