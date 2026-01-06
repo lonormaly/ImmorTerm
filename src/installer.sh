@@ -3,7 +3,7 @@
 set -e
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
-# ║              ImmorTerm - Terminal Persistence Installer (v1.0)             ║
+# ║              ImmorTerm - Terminal Persistence Installer (v1.1)             ║
 # ║                 Multi-Terminal Persistent Sessions Setup                   ║
 # ╚════════════════════════════════════════════════════════════════════════════╝
 #
@@ -14,7 +14,7 @@ set -e
 #   - Project-local scripts in .vscode/terminals/
 
 # Version
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1007,6 +1007,11 @@ print_summary() {
     echo -e "${CYAN}  │${RESET}  • Sessions persist through VS Code restarts                   ${CYAN}│${RESET}"
     echo -e "${CYAN}  │${RESET}  • Terminals auto-restore on VS Code open                      ${CYAN}│${RESET}"
     echo -e "${CYAN}  │${RESET}  • Scroll history saved to .vscode/terminals/logs/             ${CYAN}│${RESET}"
+    echo -e "${CYAN}  │${RESET}                                                                ${CYAN}│${RESET}"
+    echo -e "${CYAN}  │${RESET}  ${YELLOW}${BOLD}CLAUDE CODE INTEGRATION${RESET}  ${MAGENTA}(v1.1)${RESET}                            ${CYAN}│${RESET}"
+    echo -e "${CYAN}  │${RESET}  • Claude sessions auto-link to terminal windows               ${CYAN}│${RESET}"
+    echo -e "${CYAN}  │${RESET}  • Resume exactly where you left off after restart             ${CYAN}│${RESET}"
+    echo -e "${CYAN}  │${RESET}  • Links clear automatically when you exit Claude              ${CYAN}│${RESET}"
     echo -e "${CYAN}  │${RESET}                                                                ${CYAN}│${RESET}"
     echo -e "${CYAN}  │${RESET}  ${YELLOW}${BOLD}TERMINAL CLOSE BEHAVIOR${RESET}                                      ${CYAN}│${RESET}"
     echo -e "${CYAN}  │${RESET}  ${GREEN}Ctrl+Shift+Q Q${RESET}     Cleanup immediately                      ${CYAN}│${RESET}"

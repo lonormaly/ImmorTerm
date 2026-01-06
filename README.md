@@ -89,6 +89,18 @@ Each project has its own isolated terminal sessions. Opening Project A gives you
 | **Name Sync** | Terminal tab names sync to restore configuration |
 | **Zero Config** | Works immediately after installation |
 
+### Claude Code Integration (v1.1.0)
+
+ImmorTerm now integrates with [Claude Code](https://claude.ai/claude-code) for seamless AI workflow persistence:
+
+| Feature | Description |
+|---------|-------------|
+| **Automatic Session Linking** | ImmorTerm detects which terminal belongs to your Claude Code conversation |
+| **Seamless Context Switching** | Jump between Claude sessions and your terminals stay connected |
+| **Smart Cleanup** | Terminal links clear when you close Claude—no confusion about which session is which |
+
+When you run `claude` in a terminal, ImmorTerm automatically correlates your conversation with that terminal window. If VS Code restarts, your Claude session knows exactly which terminal has your project state.
+
 ---
 
 ## Keyboard Shortcuts
