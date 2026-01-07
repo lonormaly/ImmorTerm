@@ -72,6 +72,9 @@ if ! screen -S "$SESSION" -Q select . >/dev/null 2>&1; then
   # Shell will inherit SCREEN_PROJECT_DIR from this parent process
   screen -dmS "$SESSION" -c "$PROJECT_DIR/.vscode/terminals/screenrc" -h 50000 -L -Logfile "$LOGFILE"
 
+  # Set the screen window title immediately (before shell can override it)
+  screen -S "$SESSION" -X title "$DISPLAY_NAME"
+
   # If this is a RESTORED terminal (has windowId arg) and session was lost (laptop restart),
   # check if there's a Claude session to auto-resume
   if [[ -n "${1:-}" ]]; then
