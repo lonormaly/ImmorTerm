@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Kill all screen sessions for this project
+
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PROJECT="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]')"
+RESTORE_FILE="$PROJECT_DIR/.vscode/restore-terminals.json"
+LOGS_DIR="$PROJECT_DIR/.vscode/terminals/logs"
+
+echo "Killing all $PROJECT screen sessions..."
+
+# Find and kill all project screen sessions
+screen -ls 2>/dev/null | grep -oE "[0-9]+\.${PROJECT}-[0-9]+" | while read session; do
+  echo "  Killing $session"
+  screen -S "$session" -X quit
+done
+
+# Clear restore-terminals.json
+echo '{"artificialDelayMilliseconds": 800, "terminals": []}' | jq '.' > "$RESTORE_FILE"
+echo "Cleared restore-terminals.json"
+
+# Delete all log files
+if [[ -d "$LOGS_DIR" ]]; then
+  rm -f "$LOGS_DIR"/*.log 2>/dev/null || true
+  echo "Deleted all log files"
+fi
+
+# Clean up dead sessions
+screen -wipe >/dev/null 2>&1 || true
+
+echo "Done!"

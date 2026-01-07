@@ -408,12 +408,15 @@ install_project_scripts() {
     print_step "3" "7" "Install Project Scripts (.vscode/terminals/)"
     echo ""
     print_info "This is the core of the multi-terminal system:"
-    print_detail "• screen-auto     - Creates/attaches to screen sessions"
-    print_detail "• screen-reconcile - Auto-adds terminals to restore list"
-    print_detail "• screen-cleanup  - Removes stale terminal entries"
-    print_detail "• screen-forget   - Remove current terminal from restore"
+    print_detail "• screen-auto       - Creates/attaches to screen sessions"
+    print_detail "• screen-reconcile  - Auto-adds terminals to restore list"
+    print_detail "• screen-cleanup    - Removes stale terminal entries"
+    print_detail "• screen-forget     - Remove current terminal from restore"
     print_detail "• screen-forget-all - Reset all terminals for project"
-    print_detail "• screenrc        - Project-specific screen config"
+    print_detail "• screen-mem        - Memory display for status bar"
+    print_detail "• log-cleanup       - Log file size management"
+    print_detail "• kill-screens      - Kill all project screen sessions"
+    print_detail "• screenrc          - Project-specific screen config"
     echo ""
 
     local terminals_dir="$PROJECT_DIR/.vscode/terminals"
@@ -440,6 +443,9 @@ install_project_scripts() {
         cp "$SCRIPTS_DIR/screen-cleanup" "$terminals_dir/"
         cp "$SCRIPTS_DIR/screen-forget" "$terminals_dir/"
         cp "$SCRIPTS_DIR/screen-forget-all" "$terminals_dir/"
+        cp "$SCRIPTS_DIR/screen-mem" "$terminals_dir/"
+        cp "$SCRIPTS_DIR/log-cleanup" "$terminals_dir/"
+        cp "$SCRIPTS_DIR/kill-screens" "$terminals_dir/"
         cp "$TEMPLATES_DIR/screenrc.project" "$terminals_dir/screenrc"
 
         # Make scripts executable
@@ -448,6 +454,9 @@ install_project_scripts() {
         chmod +x "$terminals_dir/screen-cleanup"
         chmod +x "$terminals_dir/screen-forget"
         chmod +x "$terminals_dir/screen-forget-all"
+        chmod +x "$terminals_dir/screen-mem"
+        chmod +x "$terminals_dir/log-cleanup"
+        chmod +x "$terminals_dir/kill-screens"
 
         # Create restore-terminals.json if it doesn't exist
         local restore_file="$PROJECT_DIR/.vscode/restore-terminals.json"
