@@ -8,13 +8,19 @@ termcapinfo xterm* ti@:te@:hs:ts=\E]0;:fs=\007:ds=\E]0;\007
 # Allow programs inside screen to dynamically change the window title
 defdynamictitle on
 
-# Show status bar at bottom
-hardstatus alwayslastline
-hardstatus string '%{= kK}%=%n: %t%='
+# Backtick command for memory monitoring (updates every 5 seconds)
+# backtick id lifespan autorefresh command
+backtick 1 5 5 $SCREEN_PROJECT_DIR/.vscode/terminals/screen-mem
 
-# Use 256 colors
+# Status bar at bottom with memory display
+hardstatus on
+hardstatus alwayslastline '%{= kK}%=%n: %t %{= kg}| %{= kc}MEM: %1`%='
+
+# Use 256 colors with UTF-8 support
 term screen-256color
 truecolor on
+defutf8 on
+utf8 on on
 
 # Large scrollback buffer
 defscrollback 20000
