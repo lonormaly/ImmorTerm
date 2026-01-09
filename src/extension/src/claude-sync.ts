@@ -59,12 +59,12 @@ export function getScreenSessionsWithClaudeStatus(): ScreenSession[] {
             if (seenWindowIds.has(windowId)) continue;
             seenWindowIds.add(windowId);
 
-            if (status !== 'Attached') {
-                logFn(`[claude-sync] Skipping ${windowId} (${status})`);
-                continue;
-            }
-
+            // Check ALL sessions for Claude processes, not just Attached ones
+            // Claude can be running in a Detached session (e.g., after laptop restart)
             const hasClaudeProcess = checkForClaudeProcess(screenPid, debugOnce);
+            if (debugOnce) {
+                logFn(`[claude-sync] Session ${windowId} (${status}): claude=${hasClaudeProcess}`);
+            }
             debugOnce = false;
             const name = getTerminalNameFromJson(windowId);
 
@@ -97,38 +97,43 @@ function checkForClaudeProcess(screenPid: string, debug: boolean = false): boole
                 processes.push({
                     pid: parts[0],
                     ppid: parts[1],
-                    comm: parts[2]
+                    comm: parts.slice(2).join(' ')  // Handle comm with spaces
                 });
             }
         }
 
         const screenChildren = processes.filter(p => p.ppid === screenPid);
-        if (debug && screenChildren.length > 0) {
-            logFn(`[debug] Screen ${screenPid} children: ${screenChildren.map(c => `${c.comm}(${c.pid})`).join(', ')}`);
-        }
+        // Always log for debugging
+        logFn(`[debug] Screen ${screenPid} children: ${screenChildren.length > 0 ? screenChildren.map(c => `${c.comm}(${c.pid})`).join(', ') : 'NONE'}`);
 
-        const shellProcess = processes.find(p =>
+        // Find ALL shell processes under screen (not just the first one)
+        const shellProcesses = processes.filter(p =>
             p.ppid === screenPid &&
             (p.comm.includes('zsh') || p.comm.includes('bash'))
         );
 
-        if (!shellProcess) {
-            if (debug) logFn(`[debug] No shell found for screen ${screenPid}`);
+        if (shellProcesses.length === 0) {
+            logFn(`[debug] No shell found for screen ${screenPid}`);
             return false;
         }
 
-        const shellChildren = processes.filter(p => p.ppid === shellProcess.pid);
-        if (debug && shellChildren.length > 0) {
-            logFn(`[debug] Shell ${shellProcess.pid} children: ${shellChildren.map(c => `${c.comm}(${c.pid})`).join(', ')}`);
+        // Check each shell for Claude process
+        for (const shellProcess of shellProcesses) {
+            const claudeProcess = processes.find(p =>
+                p.ppid === shellProcess.pid &&
+                p.comm === 'claude'
+            );
+
+            if (claudeProcess) {
+                logFn(`[debug] Found Claude (${claudeProcess.pid}) under shell ${shellProcess.comm}(${shellProcess.pid})`);
+                return true;
+            }
         }
 
-        const claudeProcess = processes.find(p =>
-            p.ppid === shellProcess.pid &&
-            p.comm === 'claude'
-        );
-
-        return !!claudeProcess;
-    } catch {
+        logFn(`[debug] Claude process found: NO (checked ${shellProcesses.length} shells)`);
+        return false;
+    } catch (error) {
+        logFn(`[debug] Error in checkForClaudeProcess: ${error}`);
         return false;
     }
 }

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="ImmorTerm Logo" width="256">
+</p>
+
 # ImmorTerm
 
 **Terminals that survive VS Code crashes**

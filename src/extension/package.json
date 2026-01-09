@@ -1,30 +1,233 @@
 {
-  "name": "immorterm-name-sync",
-  "displayName": "ImmorTerm Name Sync",
-  "description": "Syncs VS Code terminal tab names to restore-terminals.json for ImmorTerm persistence",
-  "version": "1.1.0",
-  "publisher": "local",
+  "name": "immorterm",
+  "displayName": "ImmorTerm",
+  "description": "Immortal terminals that survive VS Code crashes, restarts, and updates. Powered by GNU Screen.",
+  "version": "1.0.0",
+  "publisher": "lonormaly",
+  "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/lonormaly/ImmorTerm.git"
   },
+  "homepage": "https://github.com/lonormaly/ImmorTerm#readme",
+  "bugs": {
+    "url": "https://github.com/lonormaly/ImmorTerm/issues"
+  },
+  "changelog": "https://github.com/lonormaly/ImmorTerm/blob/main/CHANGELOG.md",
+  "license": "MIT",
+  "author": {
+    "name": "lonormaly"
+  },
   "engines": {
     "vscode": "^1.74.0"
   },
-  "categories": ["Other"],
+  "categories": ["Other", "Terminal"],
+  "keywords": [
+    "terminal",
+    "persistence",
+    "screen",
+    "crash",
+    "restore",
+    "immortal",
+    "session",
+    "recovery",
+    "gnu-screen",
+    "tmux-alternative"
+  ],
   "activationEvents": ["onStartupFinished"],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
+        "command": "immorterm.forgetTerminal",
+        "title": "ImmorTerm: Forget Current Terminal"
+      },
+      {
+        "command": "immorterm.forgetAllTerminals",
+        "title": "ImmorTerm: Forget All Terminals"
+      },
+      {
+        "command": "immorterm.cleanupStale",
+        "title": "ImmorTerm: Cleanup Stale Sessions"
+      },
+      {
+        "command": "immorterm.killAllScreens",
+        "title": "ImmorTerm: Kill All Screen Sessions"
+      },
+      {
+        "command": "immorterm.showStatus",
+        "title": "ImmorTerm: Show Status"
+      },
+      {
         "command": "immorterm.syncNow",
-        "title": "ImmorTerm: Sync Terminal Names"
+        "title": "ImmorTerm: Sync Now"
+      },
+      {
+        "command": "immorterm.renameTerminal",
+        "title": "ImmorTerm: Rename Terminal"
+      },
+      {
+        "command": "immorterm.enableForProject",
+        "title": "ImmorTerm: Enable for This Project"
+      },
+      {
+        "command": "immorterm.disableForProject",
+        "title": "ImmorTerm: Disable for This Project"
       }
-    ]
+    ],
+    "keybindings": [
+      {
+        "command": "immorterm.forgetTerminal",
+        "key": "ctrl+shift+q q",
+        "mac": "ctrl+shift+q q",
+        "when": "terminalFocus"
+      },
+      {
+        "command": "immorterm.forgetAllTerminals",
+        "key": "ctrl+shift+q a",
+        "mac": "ctrl+shift+q a",
+        "when": "terminalFocus"
+      },
+      {
+        "command": "immorterm.renameTerminal",
+        "key": "ctrl+shift+r",
+        "mac": "ctrl+shift+r",
+        "when": "terminalFocus"
+      },
+      {
+        "command": "workbench.action.terminal.focusPrevious",
+        "key": "shift+up",
+        "mac": "shift+up",
+        "when": "terminalFocus"
+      },
+      {
+        "command": "workbench.action.terminal.focusNext",
+        "key": "shift+down",
+        "mac": "shift+down",
+        "when": "terminalFocus"
+      }
+    ],
+    "terminal": {
+      "profiles": [
+        {
+          "id": "immorterm.screen",
+          "title": "ImmorTerm"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "ImmorTerm",
+      "properties": {
+        "immorterm.scrollbackBuffer": {
+          "type": "number",
+          "default": 50000,
+          "minimum": 1000,
+          "maximum": 500000,
+          "description": "Number of lines to keep in Screen scrollback buffer",
+          "markdownDescription": "Number of lines to keep in Screen scrollback buffer.\n\n**Higher values** use more memory but preserve more terminal history.\n\n**Example**: `100000` for extensive logs, `10000` for minimal memory usage."
+        },
+        "immorterm.historyOnAttach": {
+          "type": "number",
+          "default": 20000,
+          "minimum": 100,
+          "maximum": 100000,
+          "description": "Number of lines to display when reattaching to a Screen session",
+          "markdownDescription": "Number of lines to display when reattaching to a Screen session.\n\nThis is the **visible history** shown immediately after VS Code restarts.\n\n**Example**: `5000` for quick startup, `50000` for full history."
+        },
+        "immorterm.terminalRestoreDelay": {
+          "type": "number",
+          "default": 800,
+          "minimum": 100,
+          "maximum": 5000,
+          "description": "Delay in milliseconds between terminal restorations",
+          "markdownDescription": "Delay in milliseconds between terminal restorations.\n\n**Increase** if terminals fail to restore properly on slower systems.\n\n**Example**: `1500` for slower machines, `500` for fast SSDs."
+        },
+        "immorterm.restoreOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically restore terminals when VS Code opens",
+          "markdownDescription": "Automatically restore terminals when VS Code opens.\n\nWhen **enabled**, all previously registered terminals will be recreated and reattached to their Screen sessions.\n\nSet to `false` to manually trigger restoration via the Command Palette."
+        },
+        "immorterm.maxLogSizeMb": {
+          "type": "number",
+          "default": 300,
+          "minimum": 10,
+          "maximum": 5000,
+          "description": "Maximum total size of log files in megabytes",
+          "markdownDescription": "Maximum **total** size of all log files in megabytes before cleanup.\n\nWhen exceeded, the oldest logs are removed to free space.\n\n**Example**: `100` for limited disk space, `1000` for extensive logging."
+        },
+        "immorterm.logRetainLines": {
+          "type": "number",
+          "default": 50000,
+          "minimum": 1000,
+          "maximum": 500000,
+          "description": "Number of lines to retain when truncating log files",
+          "markdownDescription": "Number of lines to retain when truncating large log files.\n\nKeeps the **most recent** lines, removing older content.\n\n**Example**: `10000` for minimal logs, `100000` for detailed history."
+        },
+        "immorterm.enableDebugLog": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable verbose debug logging",
+          "markdownDescription": "Enable verbose debug logging to the **ImmorTerm** output channel.\n\nUseful for troubleshooting issues. View logs via:\n- `View` > `Output` > Select **ImmorTerm** from dropdown"
+        },
+        "immorterm.closeGracePeriod": {
+          "type": "number",
+          "default": 60000,
+          "minimum": 1000,
+          "maximum": 300000,
+          "description": "Grace period before cleaning up a closed terminal (ms)",
+          "markdownDescription": "Grace period in milliseconds before cleaning up a closed terminal's Screen session.\n\n**Purpose**: Prevents accidental cleanup during VS Code window reloads.\n\n**Example**: `30000` (30 seconds) for faster cleanup, `120000` (2 minutes) for safety."
+        },
+        "immorterm.autoCleanupStale": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically cleanup orphaned Screen sessions on startup",
+          "markdownDescription": "Automatically cleanup stale Screen sessions on extension activation.\n\n**Removes**: Orphaned sessions without corresponding VS Code terminals.\n\nSet to `false` to manually manage cleanup via Command Palette."
+        },
+        "immorterm.statusBarEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show ImmorTerm status in the status bar",
+          "markdownDescription": "Show ImmorTerm status in the VS Code status bar.\n\n**Displays**:\n- Terminal count\n- Screen availability status\n- Warning icon if Screen is missing\n\nClick the status item to view detailed status."
+        },
+        "immorterm.namingPattern": {
+          "type": "string",
+          "default": "${project}-${n}",
+          "description": "Pattern for auto-naming terminals",
+          "markdownDescription": "Pattern for auto-naming new terminals.\n\n**Available variables**:\n- `${project}` - Workspace folder name (lowercase)\n- `${n}` - Sequential number\n\n**Examples**:\n- `${project}-${n}` → `myapp-1`, `myapp-2`\n- `Terminal ${n}` → `Terminal 1`, `Terminal 2`\n- `${project}` → `myapp` (all same name)"
+        },
+        "immorterm.closeExistingOnRestore": {
+          "type": "boolean",
+          "default": true,
+          "description": "Close existing terminals before restoring saved terminals",
+          "markdownDescription": "Close all existing terminals before restoring saved terminals on startup.\n\n**When enabled (default)**: Provides a clean slate - all open terminals are closed, then saved terminals are restored.\n\n**When disabled**: Saved terminals are restored alongside any already-open terminals."
+        },
+        "immorterm.claudeAutoResume": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically resume Claude Code sessions after restart",
+          "markdownDescription": "Automatically resume Claude Code sessions after VS Code restart.\n\n**Requires**: Claude Code extension to be installed.\n\nWhen enabled, ImmorTerm will attempt to restore Claude session context."
+        },
+        "immorterm.claudeSyncInterval": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 5000,
+          "maximum": 300000,
+          "description": "Claude session sync interval in milliseconds",
+          "markdownDescription": "Interval in milliseconds for syncing Claude session state.\n\n**Lower values** provide more frequent saves but may impact performance.\n\n**Example**: `10000` (10s) for frequent saves, `60000` (1 min) for less overhead."
+        }
+      }
+    }
   },
   "scripts": {
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/vscode": "^1.74.0",

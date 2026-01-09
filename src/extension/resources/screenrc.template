@@ -1,0 +1,42 @@
+# ImmorTerm - Project Screen Configuration
+# This file is placed in {project}/.vscode/terminals/screenrc
+
+# Disable alternate screen buffer for native VS Code scrolling
+# Enable dynamic terminal title updates (forward OSC sequences to VS Code)
+termcapinfo xterm* ti@:te@:hs:ts=\E]0;:fs=\007:ds=\E]0;\007
+
+# Allow programs inside screen to dynamically change the window title
+defdynamictitle on
+
+# Backtick command for memory monitoring (updates every 5 seconds)
+# backtick id lifespan autorefresh command
+backtick 1 5 5 $SCREEN_PROJECT_DIR/.vscode/terminals/screen-mem
+
+# Status bar at bottom with memory display
+hardstatus on
+hardstatus alwayslastline '%{= kK}%=%n: %t %{= kg}| %{= kc}MEM: %1`%='
+
+# Use 256 colors with UTF-8 support
+term screen-256color
+truecolor on
+defutf8 on
+utf8 on on
+
+# Large scrollback buffer
+defscrollback 20000
+
+# Disable startup message
+startup_message off
+
+# Disable visual bell
+vbell off
+
+# Auto-detach on hangup (keeps session alive if VS Code closes)
+autodetach on
+
+# Use login shell
+shell -$SHELL
+
+# Don't set shelltitle - let screen-auto and extension control the title
+# (shelltitle "$WINDOW" would use window NUMBER, not the friendly name)
+# defdynamictitle on is already set above to allow dynamic title changes

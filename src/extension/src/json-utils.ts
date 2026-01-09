@@ -88,18 +88,27 @@ export function updateJsonName(windowId: string, newName: string) {
  * The command is updated to include the display name so screen-auto uses it for the tab title
  */
 export function updateJsonNameAndCommand(windowId: string, newName: string) {
+    logFn(`updateJsonNameAndCommand called: windowId=${windowId}, newName=${newName}`);
+
+    if (!jsonPath) {
+        logFn('ERROR: jsonPath not initialized - call initJsonUtils first');
+        return;
+    }
+
     if (!fs.existsSync(jsonPath)) {
-        logFn('restore-terminals.json not found');
+        logFn(`restore-terminals.json not found at: ${jsonPath}`);
         return;
     }
 
     try {
         const config = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
         let modified = false;
+        const foundIds: string[] = [];
 
         for (const tab of config.terminals || []) {
             for (const split of tab.splitTerminals || []) {
                 const id = split.windowId || extractWindowIdFromCommands(split.commands);
+                if (id) foundIds.push(id);
                 if (id === windowId) {
                     if (split.name !== newName) {
                         logFn(`JSON update name "${split.name}" → "${newName}"`);
@@ -122,6 +131,8 @@ export function updateJsonNameAndCommand(windowId: string, newName: string) {
         if (modified) {
             fs.writeFileSync(jsonPath, JSON.stringify(config, null, 2) + '\n');
             logFn('Updated restore-terminals.json (name + command)');
+        } else {
+            logFn(`No match found for windowId=${windowId}. Found IDs in JSON: [${foundIds.join(', ')}]`);
         }
     } catch (error) {
         logFn(`Error updating JSON: ${error}`);
@@ -231,6 +242,152 @@ export function removeClaudeSessionId(windowId: string): boolean {
         return modified;
     } catch (error) {
         logFn(`Error removing claudeSessionId: ${error}`);
+        return false;
+    }
+}
+
+/**
+ * Add a new terminal entry to restore-terminals.json
+ * Creates the file if it doesn't exist
+ */
+export function addTerminalToJson(windowId: string, displayName: string): boolean {
+    try {
+        // Default config structure
+        let config = {
+            artificialDelayMilliseconds: 800,
+            terminals: [] as Array<{ splitTerminals: Array<{ windowId: string; name: string; commands: string[] }> }>
+        };
+
+        // Load existing config if file exists
+        if (fs.existsSync(jsonPath)) {
+            config = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+            if (!config.terminals) {
+                config.terminals = [];
+            }
+        }
+
+        // Check if terminal already exists
+        for (const tab of config.terminals) {
+            for (const split of tab.splitTerminals || []) {
+                if (split.windowId === windowId) {
+                    logFn(`Terminal ${windowId} already exists in JSON, skipping add`);
+                    return false; // Already exists
+                }
+            }
+        }
+
+        // Create the command that screen-auto uses
+        const command = `exec .vscode/terminals/screen-auto ${windowId} ${displayName}`;
+
+        // Add new terminal entry
+        config.terminals.push({
+            splitTerminals: [
+                {
+                    windowId,
+                    name: displayName,
+                    commands: [command]
+                }
+            ]
+        });
+
+        // Write to file
+        fs.writeFileSync(jsonPath, JSON.stringify(config, null, 2) + '\n');
+        logFn(`Added terminal ${windowId} ("${displayName}") to restore-terminals.json`);
+        return true;
+    } catch (error) {
+        logFn(`Error adding terminal to JSON: ${error}`);
+        return false;
+    }
+}
+
+/**
+ * Remove a specific terminal entry from restore-terminals.json
+ * @param windowId The window ID to remove
+ * @returns true if terminal was found and removed, false otherwise
+ */
+export function removeTerminalFromJson(windowId: string): boolean {
+    if (!fs.existsSync(jsonPath)) return false;
+
+    try {
+        const config = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+        let modified = false;
+
+        // Filter out the terminal with the given windowId
+        config.terminals = (config.terminals || []).filter((tab: { splitTerminals?: Array<{ windowId?: string }> }) => {
+            if (!tab.splitTerminals) return true;
+
+            const originalLength = tab.splitTerminals.length;
+            tab.splitTerminals = tab.splitTerminals.filter(split => split.windowId !== windowId);
+
+            if (tab.splitTerminals.length !== originalLength) {
+                modified = true;
+            }
+
+            // Keep the tab only if it still has terminals
+            return tab.splitTerminals.length > 0;
+        });
+
+        if (modified) {
+            fs.writeFileSync(jsonPath, JSON.stringify(config, null, 2) + '\n');
+            logFn(`Removed terminal ${windowId} from restore-terminals.json`);
+        }
+
+        return modified;
+    } catch (error) {
+        logFn(`Error removing terminal from JSON: ${error}`);
+        return false;
+    }
+}
+
+/**
+ * Get all terminals from restore-terminals.json
+ * Returns array of {windowId, name, claudeSessionId} for restoration
+ */
+export function getAllTerminalsFromJson(): Array<{ windowId: string; name: string; claudeSessionId?: string }> {
+    if (!fs.existsSync(jsonPath)) return [];
+
+    try {
+        const config = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+        const terminals: Array<{ windowId: string; name: string; claudeSessionId?: string }> = [];
+
+        for (const tab of config.terminals || []) {
+            for (const split of tab.splitTerminals || []) {
+                const windowId = split.windowId || extractWindowIdFromCommands(split.commands);
+                if (windowId && split.name) {
+                    terminals.push({
+                        windowId,
+                        name: split.name,
+                        claudeSessionId: split.claudeSessionId
+                    });
+                }
+            }
+        }
+
+        return terminals;
+    } catch (error) {
+        logFn(`Error reading terminals from JSON: ${error}`);
+        return [];
+    }
+}
+
+/**
+ * Clear all terminal entries from restore-terminals.json
+ * Resets the file to an empty terminals array
+ */
+export function clearAllTerminalsFromJson(): boolean {
+    try {
+        // Create empty config structure
+        const config = {
+            artificialDelayMilliseconds: 800,
+            terminals: [] as Array<{ splitTerminals: Array<{ windowId: string; name: string; commands: string[] }> }>
+        };
+
+        // Write empty config to file
+        fs.writeFileSync(jsonPath, JSON.stringify(config, null, 2) + '\n');
+        logFn('Cleared all terminals from restore-terminals.json');
+        return true;
+    } catch (error) {
+        logFn(`Error clearing terminals from JSON: ${error}`);
         return false;
     }
 }
