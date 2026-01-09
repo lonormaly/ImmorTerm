@@ -217,8 +217,6 @@ export const screenCommands = {
 
   /**
    * Sets the window title of a screen session
-   * Updates both screen's internal title AND sends OSC sequence to update VS Code tab
-   * (OSC sequence is needed when programs like Claude are running inside the terminal)
    * @param sessionName The session to update
    * @param title The new title
    */
@@ -227,11 +225,9 @@ export const screenCommands = {
       // Update screen's internal window title
       await execAsync(`screen -S "${sessionName}" -X title "${title}"`);
 
-      // Also inject OSC 0 sequence to update VS Code tab title
-      // This works even when programs like Claude are running inside the terminal
-      // The escape sequence is: ESC ] 0 ; title BEL
-      const oscSequence = `\x1b]0;${title}\x07`;
-      await execAsync(`screen -S "${sessionName}" -X stuff $'${oscSequence}'`);
+      // NOTE: We don't use "screen -X stuff" for OSC sequences
+      // That command injects into terminal INPUT, not output - it would type garbage
+      // into whatever program is running (Claude, vim, etc.)
 
       logger.debug(`Set screen title for ${sessionName}: "${title}"`);
       return true;

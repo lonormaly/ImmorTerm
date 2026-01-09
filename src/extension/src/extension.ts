@@ -52,6 +52,85 @@ import { initClaudeSync, syncClaudeSessions } from './claude-sync';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
+// Track command-initiated renames to prevent onDidChangeTerminalState from reverting
+// Maps windowId -> {newName, oldVsCodeName} - we skip sync if VS Code still has oldVsCodeName
+const commandRenames = new Map<string, { newName: string; oldVsCodeName: string }>();
+
+/**
+ * Mark a terminal as renamed via command (called from rename command)
+ * Stores both the new name we set and the VS Code name at rename time
+ * Entry persists until VS Code tab updates or user manually renames
+ */
+export function markCommandRenamed(windowId: string, newName: string, oldVsCodeName: string): void {
+  commandRenames.set(windowId, { newName, oldVsCodeName });
+  // No timeout - entry cleared when VS Code tab updates or user renames differently
+}
+
+/**
+ * Check if we should skip syncing VS Code's name to storage
+ * Returns true if: we recently renamed via command AND VS Code still shows old name
+ * Returns false if: VS Code name actually changed (user manual rename) - we should sync
+ */
+function shouldSkipVsCodeSync(windowId: string, vsCodeName: string, storedName: string): boolean {
+  const pending = commandRenames.get(windowId);
+  if (!pending) return false;
+
+  // Case 1: VS Code finally updated to our new name - clear tracking, no sync needed
+  if (vsCodeName === pending.newName) {
+    logger.debug(`VS Code tab updated to command name "${pending.newName}" - clearing tracking`);
+    commandRenames.delete(windowId);
+    return true; // Skip sync - names already match
+  }
+
+  // Case 2: VS Code still has old name, storage has our new name - skip the revert
+  if (vsCodeName === pending.oldVsCodeName && storedName === pending.newName) {
+    logger.debug(`Skipping sync - command renamed to "${pending.newName}", VS Code still shows "${vsCodeName}"`);
+    return true;
+  }
+
+  // Case 3: VS Code has a completely different name - user manually renamed
+  // Clear tracking and let it sync
+  logger.debug(`User renamed to "${vsCodeName}" - clearing tracking, allowing sync`);
+  commandRenames.delete(windowId);
+  return false;
+}
+
+/**
+ * Sync a user-initiated terminal name change to storage, JSON, screen, and shell.
+ * Called when VS Code terminal name changes (via UI rename).
+ */
+async function syncUserRename(
+  windowId: string,
+  newName: string,
+  terminalManager: TerminalManager
+): Promise<void> {
+  await terminalManager.updateTerminalName(windowId, newName);
+  updateJsonNameAndCommand(windowId, newName);
+
+  // Update screen title
+  const projectName = terminalManager.getProjectName();
+  const sessionName = `${projectName}-${windowId}`;
+  const timestamp = new Date().toLocaleDateString('en-GB', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
+  }).replace(',', '-').replace(' ', '');
+  await screenCommands.setWindowTitle(sessionName, `${timestamp} ${newName}`);
+
+  // Write pending-renames file so shell's precmd hook updates SCREEN_WINDOW_NAME
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (workspaceFolder) {
+    const pendingDir = path.join(workspaceFolder, '.vscode', 'terminals', 'pending-renames');
+    try {
+      await fs.mkdir(pendingDir, { recursive: true });
+      await fs.writeFile(path.join(pendingDir, sessionName), newName, 'utf-8');
+      logger.debug('Wrote pending rename file for shell:', sessionName);
+    } catch (err) {
+      logger.warn('Failed to write pending rename file:', err);
+    }
+  }
+
+  logger.info('Synced user rename to storage, JSON, screen, and shell:', windowId, '->', newName);
+}
+
 /**
  * Generates a unique window ID in the same format as screen-auto
  * Format: {pid}-{8-char-random}
@@ -489,9 +568,14 @@ function registerCommands(
 
       const storage = terminalManager.getStorage();
       const projectName = terminalManager.getProjectName();
+      const oldVsCodeName = terminal.name; // Capture VS Code tab name before rename
       const result = await renameTerminal(terminal, windowId, storage, projectName);
 
       if (result.success && result.oldName !== result.newName) {
+        // Mark this rename so onDidChangeTerminalState won't revert it
+        // VS Code tab name stays as oldVsCodeName (can't update via OSC through screen)
+        // Storage/JSON have newName - we don't want handler to "sync" old name back
+        markCommandRenamed(windowId, result.newName!, oldVsCodeName);
         vscode.window.showInformationMessage(
           `ImmorTerm: Renamed "${result.oldName}" → "${result.newName}"`
         );
@@ -719,11 +803,12 @@ function subscribeToTerminalEvents(
         logger.debug('onDidChangeTerminalState - stored name:', storedTerminal?.name || 'NOT FOUND', '| terminal name:', terminal.name);
 
         if (storedTerminal && storedTerminal.name !== terminal.name) {
-          logger.info('Name changed, updating storage + JSON:', storedTerminal.name, '->', terminal.name);
-          await terminalManager.updateTerminalName(windowId, terminal.name);
-          // Also sync to restore-terminals.json for compatibility
-          updateJsonNameAndCommand(windowId, terminal.name);
-          logger.info('Updated terminal name in both storages:', windowId, '->', terminal.name);
+          // Check if we should skip this sync (command-initiated rename where VS Code hasn't updated)
+          if (shouldSkipVsCodeSync(windowId, terminal.name, storedTerminal.name)) {
+            return;
+          }
+          // VS Code name actually changed (user manual rename) - sync all
+          await syncUserRename(windowId, terminal.name, terminalManager);
         } else {
           logger.debug('onDidChangeTerminalState - name unchanged or terminal not in storage');
         }
@@ -735,11 +820,26 @@ function subscribeToTerminalEvents(
   context.subscriptions.push(onDidChangeTerminalState);
   disposables.push(onDidChangeTerminalState);
 
-  // Track active terminal changes
+  // Track active terminal changes - also sync names here since onDidChangeTerminalState
+  // may not fire reliably for name changes
   const onDidChangeActiveTerminal = vscode.window.onDidChangeActiveTerminal(
-    (terminal) => {
+    async (terminal) => {
       if (terminal) {
         logger.debug('Active terminal changed:', terminal.name);
+
+        // Check if this terminal's name changed (user manual rename via VS Code UI)
+        const windowId = terminalManager.getWindowIdForTerminal(terminal);
+        if (windowId) {
+          const storedTerminal = terminalManager.getTerminalByWindowId(windowId);
+          if (storedTerminal && storedTerminal.name !== terminal.name) {
+            // Check if we should skip this sync (command-initiated rename)
+            if (shouldSkipVsCodeSync(windowId, terminal.name, storedTerminal.name)) {
+              return;
+            }
+            // VS Code name actually changed (user manual rename) - sync all
+            await syncUserRename(windowId, terminal.name, terminalManager);
+          }
+        }
       }
     }
   );

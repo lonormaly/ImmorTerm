@@ -77,15 +77,28 @@ export async function renameTerminal(
   }
 
   try {
-    // 1. Update screen title
-    await execAsync(`screen -S "${sessionName}" -X title "${trimmedName}"`);
-    logger.debug(`Set screen title to "${trimmedName}"`);
+    // 1. Update screen title with timestamp
+    const timestamp = new Date().toLocaleDateString('en-GB', {
+      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
+    }).replace(',', '-').replace(' ', '');
+    const fullTitle = `${timestamp} ${trimmedName}`;
+    await execAsync(`screen -S "${sessionName}" -X title "${fullTitle}"`);
+    logger.debug(`Set screen title to "${fullTitle}"`);
 
-    // 2. Send OSC sequence to update VS Code tab
-    // Must use screen -X stuff to inject from outside (works even when Claude is running)
-    // Using $'...' syntax for proper escape sequence interpretation
-    await execAsync(`screen -S "${sessionName}" -X stuff $'\\033]0;${trimmedName}\\007'`);
-    logger.debug(`Sent OSC sequence via screen stuff`);
+    // 2. Write pending rename file for the shell to pick up
+    // Use session name as filename - shell can derive this from $STY
+    // The shell's precmd hook will read this and update SCREEN_WINDOW_NAME
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspaceFolder) {
+      const pendingDir = `${workspaceFolder}/.vscode/terminals/pending-renames`;
+      await execAsync(`mkdir -p "${pendingDir}"`);
+      const pendingFile = `${pendingDir}/${sessionName}`;
+      await execAsync(`echo "${trimmedName}" > "${pendingFile}"`);
+      logger.debug(`Wrote pending rename file: ${pendingFile}`);
+    }
+
+    // NOTE: We don't use "screen -X stuff" for OSC sequences - that injects into INPUT, not output
+    // The shell's precmd hook will pick up the pending file and update the title
 
     // 3. Update storage
     await storage.updateTerminal(windowId, { name: trimmedName });

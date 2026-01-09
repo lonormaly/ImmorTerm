@@ -86,11 +86,7 @@ if ! screen -S "$SESSION" -Q select . >/dev/null 2>&1; then
   # Set the screen window title immediately (before shell can override it)
   screen -S "$SESSION" -X title "$DISPLAY_NAME"
 
-  # Source shell init script for title management (if exists)
-  SHELL_INIT="$PROJECT_DIR/.vscode/terminals/shell-init.zsh"
-  if [[ -f "$SHELL_INIT" ]]; then
-    screen -S "$SESSION" -X stuff "source '$SHELL_INIT'\n"
-  fi
+  # Note: shell-init.zsh is sourced automatically by shell-wrapper.zsh (set in screenrc)
 
   # If this is a RESTORED terminal (has windowId arg) and session was lost (laptop restart),
   # check if there's a Claude session to auto-resume
@@ -110,11 +106,8 @@ if ! screen -S "$SESSION" -Q select . >/dev/null 2>&1; then
   fi
 else
   debug "SESSION_IS_NEW=false for $SESSION (attaching to existing)"
-  # Source shell init for existing sessions too (re-applies on every attach)
-  SHELL_INIT="$PROJECT_DIR/.vscode/terminals/shell-init.zsh"
-  if [[ -f "$SHELL_INIT" ]]; then
-    screen -S "$SESSION" -X stuff "source '$SHELL_INIT'\n"
-  fi
+  # Note: shell-init.zsh is sourced automatically by shell-wrapper.zsh (set in screenrc)
+  # No need to inject commands - the wrapper handles it for all sessions
 fi
 
 # Set VS Code terminal tab name BEFORE exec screen

@@ -35,8 +35,8 @@ vbell off
 # Auto-detach on hangup (keeps session alive if VS Code closes)
 autodetach on
 
-# Use login shell
-shell -$SHELL
+# Use shell wrapper that sources shell-init.zsh before starting interactive shell
+shell $SCREEN_PROJECT_DIR/.vscode/terminals/shell-wrapper.zsh
 
 # Don't set shelltitle - let screen-auto and extension control the title
 # (shelltitle "$WINDOW" would use window NUMBER, not the friendly name)
