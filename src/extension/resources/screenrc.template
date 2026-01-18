@@ -2,26 +2,32 @@
 # This file is placed in {project}/.vscode/terminals/screenrc
 
 # Disable alternate screen buffer for native VS Code scrolling
-# Note: Removed hs:ts:fs:ds (status line sequences) to prevent title flicker
-# VS Code tab title is set by screen-auto's OSC sequence instead
-termcapinfo xterm* ti@:te@
+# Enable OSC title passthrough so programs (like Claude Code) can set VS Code tab title
+# hs = has status line, ts/fs = start/end title sequence (OSC 0)
+termcapinfo xterm* ti@:te@:hs:ts=\E]0;:fs=\007:ds=\E]0;\007
 
 # Allow programs inside screen to dynamically change the window title
 defdynamictitle on
 
 # Backtick command for memory monitoring (updates every 5 seconds)
-# backtick id lifespan autorefresh command
 backtick 1 5 5 $SCREEN_PROJECT_DIR/.vscode/terminals/screen-mem
 
-# Status bar at bottom with memory display
-hardstatus on
-hardstatus alwayslastline '%{= kK}%=%n: %t %{= kg}| %{= kc}MEM: %1`%='
+# Backtick command to extract project name from path (runs once)
+backtick 2 0 0 basename $SCREEN_PROJECT_DIR
+
+# ImmorTerm branded status bar with purple gradient
+# Left: project name / screen title | Right: memory + ImmorTerm branding
+hardstatus alwayslastline '%{= #FFFFFF;#2D004D} %2` %{= #FFFFFF;#4B0082}/ %t %=%{= #FFFFFF;#6B238E}%1` %{= #FFFFFF;#8B008B} ImmorTerm %{-}'
 
 # Use 256 colors with UTF-8 support
 term screen-256color
 truecolor on
+
+# UTF-8 encoding for proper Unicode character support in titles
 defutf8 on
 utf8 on on
+defencoding UTF-8
+encoding UTF-8 UTF-8
 
 # Large scrollback buffer
 defscrollback 20000
@@ -35,9 +41,8 @@ vbell off
 # Auto-detach on hangup (keeps session alive if VS Code closes)
 autodetach on
 
-# Use login shell
-shell -$SHELL
+# Use shell wrapper that sources shell-init.zsh before starting interactive shell
+shell $SCREEN_PROJECT_DIR/.vscode/terminals/shell-wrapper.zsh
 
 # Don't set shelltitle - let screen-auto and extension control the title
-# (shelltitle "$WINDOW" would use window NUMBER, not the friendly name)
-# defdynamictitle on is already set above to allow dynamic title changes
+# (shelltitle "$WINDOW" would conflict with defdynamictitle)

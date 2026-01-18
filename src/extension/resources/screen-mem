@@ -15,7 +15,8 @@ fi
 # Method 2: Parent process - screen runs backticks as direct children
 if [[ -z "$SESSION_PID" || ! "$SESSION_PID" =~ ^[0-9]+$ ]]; then
   PARENT_COMM=$(ps -o comm= -p "$PPID" 2>/dev/null)
-  if [[ "$PARENT_COMM" == "screen" || "$PARENT_COMM" == "SCREEN" ]]; then
+  SCREEN_BIN_NAME=$(basename "${IMMORTERM_SCREEN_BINARY:-screen-immorterm}")
+  if [[ "$PARENT_COMM" == "$SCREEN_BIN_NAME" ]]; then
     SESSION_PID="$PPID"
   fi
 fi

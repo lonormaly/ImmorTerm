@@ -17,12 +17,14 @@ import {
 
 let projectName: string;
 let workspacePath: string;
+let screenBinary: string = 'screen-immorterm';
 let logFn: (message: string) => void = console.log;
 
-export function initClaudeSync(project: string, workspace: string, logger: (message: string) => void) {
+export function initClaudeSync(project: string, workspace: string, logger: (message: string) => void, screen: string = 'screen-immorterm') {
     projectName = project;
     workspacePath = workspace;
     logFn = logger;
+    screenBinary = screen;
 }
 
 export interface ScreenSession {
@@ -39,13 +41,15 @@ export function getScreenSessionsWithClaudeStatus(): ScreenSession[] {
     const sessions: ScreenSession[] = [];
 
     try {
-        const screenList = execSync('screen -ls 2>/dev/null || true', {
+        logFn(`[claude-sync] Using screen binary: ${screenBinary}, project: ${projectName}`);
+        const screenList = execSync(`${screenBinary} -ls 2>/dev/null || true`, {
             encoding: 'utf8',
             timeout: 5000
         });
 
-        // Parse screen sessions - only (Attached) ones have running processes
+        // Parse ImmorTerm sessions - check both Attached and Detached
         const sessionRegex = new RegExp(`(\\d+)\\.${projectName}-(\\S+)\\s+\\((Attached|Detached)\\)`, 'g');
+        logFn(`[claude-sync] Regex pattern: ${sessionRegex.source}`);
         let match;
 
         const seenWindowIds = new Set<string>();
@@ -352,7 +356,7 @@ export function cleanupOrphanedLogs() {
                     // Kill the orphaned screen session first
                     const sessionName = `${projectName}-${windowId}`;
                     try {
-                        execSync(`screen -S "${sessionName}" -X quit 2>/dev/null || true`, {
+                        execSync(`${screenBinary} -S "${sessionName}" -X quit 2>/dev/null || true`, {
                             timeout: 5000,
                             stdio: 'pipe'
                         });
@@ -382,7 +386,7 @@ export function syncClaudeSessions() {
     cleanupOrphanedLogs();
 
     const sessions = getScreenSessionsWithClaudeStatus();
-    logFn(`[claude-sync] Found ${sessions.length} screen sessions`);
+    logFn(`[claude-sync] Found ${sessions.length} ImmorTerm sessions`);
 
     for (const session of sessions) {
         const currentSessionId = getCurrentClaudeSessionId(session.windowId);

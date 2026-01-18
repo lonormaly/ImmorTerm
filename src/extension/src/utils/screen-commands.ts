@@ -1,8 +1,18 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as vscode from 'vscode';
 import { logger } from './logger';
 
 const execAsync = promisify(exec);
+
+/**
+ * Gets the configured screen binary path from settings
+ * @returns The screen binary path (default: 'screen-immorterm')
+ */
+function getScreenBinary(): string {
+  const config = vscode.workspace.getConfiguration('immorterm');
+  return config.get<string>('screenBinary', 'screen-immorterm');
+}
 
 /**
  * Screen session information parsed from `screen -ls` output
@@ -63,7 +73,8 @@ export const screenCommands = {
    */
   async listSessions(): Promise<Map<string, ScreenSession>> {
     try {
-      const { stdout } = await execAsync('screen -ls');
+      const screen = getScreenBinary();
+      const { stdout } = await execAsync(`${screen} -ls`);
       return parseScreenLsOutput(stdout);
     } catch (error: unknown) {
       // screen -ls returns exit code 1 when there are no sessions
@@ -88,7 +99,8 @@ export const screenCommands = {
    */
   async killSession(sessionName: string): Promise<boolean> {
     try {
-      await execAsync(`screen -S "${sessionName}" -X quit`);
+      const screen = getScreenBinary();
+      await execAsync(`${screen} -S "${sessionName}" -X quit`);
       logger.debug(`Killed screen session: ${sessionName}`);
       return true;
     } catch (error) {
@@ -113,7 +125,8 @@ export const screenCommands = {
    */
   async isScreenInstalled(): Promise<boolean> {
     try {
-      await execAsync('which screen');
+      const screen = getScreenBinary();
+      await execAsync(`which ${screen}`);
       return true;
     } catch {
       return false;
@@ -126,7 +139,8 @@ export const screenCommands = {
    */
   async getScreenPath(): Promise<string | null> {
     try {
-      const { stdout } = await execAsync('which screen');
+      const screen = getScreenBinary();
+      const { stdout } = await execAsync(`which ${screen}`);
       return stdout.trim();
     } catch {
       return null;
@@ -140,7 +154,8 @@ export const screenCommands = {
    */
   async sendCommand(sessionName: string, command: string): Promise<boolean> {
     try {
-      await execAsync(`screen -S "${sessionName}" -X stuff "${command}"`);
+      const screen = getScreenBinary();
+      await execAsync(`${screen} -S "${sessionName}" -X stuff "${command}"`);
       return true;
     } catch (error) {
       logger.warn(`Failed to send command to ${sessionName}:`, error);
@@ -154,7 +169,8 @@ export const screenCommands = {
    */
   async detachSession(sessionName: string): Promise<boolean> {
     try {
-      await execAsync(`screen -S "${sessionName}" -d`);
+      const screen = getScreenBinary();
+      await execAsync(`${screen} -S "${sessionName}" -d`);
       return true;
     } catch {
       return false;
@@ -206,7 +222,8 @@ export const screenCommands = {
    */
   async getWindowTitle(sessionName: string): Promise<string | null> {
     try {
-      const { stdout } = await execAsync(`screen -S "${sessionName}" -Q title`);
+      const screen = getScreenBinary();
+      const { stdout } = await execAsync(`${screen} -S "${sessionName}" -Q title`);
       const title = stdout.trim();
       return title || null;
     } catch {
@@ -222,8 +239,9 @@ export const screenCommands = {
    */
   async setWindowTitle(sessionName: string, title: string): Promise<boolean> {
     try {
+      const screen = getScreenBinary();
       // Update screen's internal window title
-      await execAsync(`screen -S "${sessionName}" -X title "${title}"`);
+      await execAsync(`${screen} -S "${sessionName}" -X title "${title}"`);
 
       // NOTE: We don't use "screen -X stuff" for OSC sequences
       // That command injects into terminal INPUT, not output - it would type garbage
@@ -236,6 +254,12 @@ export const screenCommands = {
       return false;
     }
   },
+
+  /**
+   * Gets the configured screen binary name
+   * @returns The screen binary path
+   */
+  getScreenBinary,
 };
 
 export default screenCommands;

@@ -5,6 +5,9 @@
 # Only run inside screen sessions
 [[ -z "$STY" ]] && return
 
+# Use the same screen binary that created this session (screen vs screen-immorterm use different sockets)
+SCREEN_CMD="${IMMORTERM_SCREEN_BINARY:-screen-immorterm}"
+
 # Initialize SCREEN_WINDOW_NAME if not already set by screen-auto
 if [[ -z "${SCREEN_WINDOW_NAME:-}" ]]; then
     export SCREEN_WINDOW_NAME="zsh"
@@ -26,7 +29,12 @@ _immorterm_title_update() {
         rm -f "$pending_file"
     fi
 
-    screen -X title "$(date '+%d/%m-%H:%M') ${SCREEN_WINDOW_NAME}" 2>/dev/null
+    local title="$(date '+%d/%m-%H:%M') ${SCREEN_WINDOW_NAME}"
+    "$SCREEN_CMD" -X title "$title" 2>/dev/null
+
+    # Send OSC sequence directly to the outer terminal (VS Code), bypassing screen's interception
+    # /dev/tty goes to the controlling terminal which is VS Code's PTY
+    printf '\033]0;%s\007' "$title" > /dev/tty
 }
 
 # Register precmd hook
@@ -49,7 +57,9 @@ sname() {
     if [[ "$name" == \!* ]]; then
         # Pinned mode - remove hook and set title without date
         precmd_functions=(${precmd_functions:#_immorterm_title_update})
-        screen -X title "${name#!}" 2>/dev/null
+        local pinned_title="${name#!}"
+        "$SCREEN_CMD" -X title "$pinned_title" 2>/dev/null
+        printf '\033]0;%s\007' "$pinned_title" > /dev/tty
     else
         # Normal mode
         export SCREEN_WINDOW_NAME="$name"

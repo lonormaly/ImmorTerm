@@ -81,7 +81,7 @@ export class StatusBar {
       // Get active Screen session count for tooltip
       try {
         const sessions = await screenCommands.listProjectSessions(projectName);
-        tooltip += `\n${sessions.length} Screen session${sessions.length !== 1 ? 's' : ''} active`;
+        tooltip += `\n${sessions.length} ImmorTerm session${sessions.length !== 1 ? 's' : ''} active`;
       } catch {
         // Ignore errors in tooltip generation
       }

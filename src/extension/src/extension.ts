@@ -161,11 +161,13 @@ class ImmorTermProfileProvider implements vscode.TerminalProfileProvider {
   provideTerminalProfile(
     _token: vscode.CancellationToken
   ): vscode.ProviderResult<vscode.TerminalProfile> {
+    logger.info('ImmorTermProfileProvider.provideTerminalProfile() called');
     const screenAutoPath = `${this.terminalsDir}/screen-auto`;
 
     // Generate unique window ID and display name BEFORE terminal creation
     const windowId = generateWindowId();
     const displayName = generateNextName(this.projectName, this.storage);
+    logger.info('Creating new ImmorTerm terminal:', { windowId, displayName, screenAutoPath });
 
     logger.debug('Pre-generating terminal identity:', { windowId, displayName });
 
@@ -180,14 +182,23 @@ class ImmorTermProfileProvider implements vscode.TerminalProfileProvider {
       logger.warn('Failed to write pending file:', err);
     }
 
+    // NOTE: Do NOT set 'name' property here!
+    // When 'name' is set via TerminalProfileProvider, VS Code ignores OSC title sequences.
+    // By omitting 'name', VS Code respects the 'terminal.integrated.tabs.title: ${sequence}'
+    // setting, allowing dynamic title changes (e.g., when Claude Code renames terminals).
+    // The screen-auto script sends an OSC sequence immediately at startup to set the initial title.
+
+    // Get configured screen binary
+    const screenBinary = vscode.workspace.getConfiguration('immorterm').get<string>('screenBinary', 'screen-immorterm');
+
     return new vscode.TerminalProfile({
-      name: displayName,  // Use generated name for terminal tab!
       shellPath: '/bin/bash',
       shellArgs: ['-l', '-c', screenAutoPath],
       env: {
         IMMORTERM_EXTENSION: '1',
         IMMORTERM_WINDOW_ID: windowId,
         IMMORTERM_DISPLAY_NAME: displayName,
+        IMMORTERM_SCREEN_BINARY: screenBinary,
       },
     });
   }
@@ -482,7 +493,7 @@ function registerCommands(
         {
           label: '$(list-unordered) Terminals',
           description: `${terminals.length} registered`,
-          detail: `Screen Sessions: ${screenSessionCount} | Log Size: ${totalLogSizeMb.toFixed(2)} MB`,
+          detail: `ImmorTerm Sessions: ${screenSessionCount} | Log Size: ${totalLogSizeMb.toFixed(2)} MB`,
         },
         { kind: vscode.QuickPickItemKind.Separator, label: '' },
       ];
@@ -717,7 +728,34 @@ function registerCommands(
   );
   context.subscriptions.push(disableForProjectCmd);
 
-  logger.info('Registered 8 commands');
+  // TEST Command: Try to set terminal title via sendText with OSC
+  const testTitleCmd = vscode.commands.registerCommand(
+    'immorterm.testTitle',
+    async () => {
+      const terminal = vscode.window.activeTerminal;
+      if (!terminal) {
+        vscode.window.showErrorMessage('No active terminal');
+        return;
+      }
+
+      const newName = await vscode.window.showInputBox({
+        prompt: 'Enter test title',
+        value: 'TestTitle',
+      });
+
+      if (!newName) return;
+
+      // Try sending OSC sequence via sendText
+      // This sends to terminal INPUT - let's see what happens
+      terminal.sendText(`printf '\\033]0;${newName}\\007'`, true);
+
+      vscode.window.showInformationMessage(`Sent OSC for: ${newName}`);
+      logger.info(`TEST: Sent OSC via sendText for: ${newName}`);
+    }
+  );
+  context.subscriptions.push(testTitleCmd);
+
+  logger.info('Registered 9 commands');
 }
 
 /**
@@ -730,7 +768,7 @@ function subscribeToTerminalEvents(
 ): void {
   // Track when terminals are opened
   const onDidOpenTerminal = vscode.window.onDidOpenTerminal((terminal) => {
-    logger.debug('Terminal opened:', terminal.name);
+    logger.info('Terminal opened:', terminal.name);
 
     // Check if this terminal is already tracked (restored terminal)
     if (terminalManager.getWindowIdForTerminal(terminal)) {
@@ -738,10 +776,21 @@ function subscribeToTerminalEvents(
       return;
     }
 
-    // Try to match this terminal to a registered entry by name
-    // This handles new terminals created via the profile provider
+    // Check for ImmorTerm env var - most reliable method
+    // The profile provider sets IMMORTERM_WINDOW_ID in the terminal's env
+    const opts = terminal.creationOptions as vscode.TerminalOptions | undefined;
+    const envWindowId = opts?.env?.IMMORTERM_WINDOW_ID;
+    if (envWindowId) {
+      terminalManager.trackTerminal(terminal, envWindowId);
+      logger.info('Tracked terminal by env var:', envWindowId);
+      return;
+    }
+
+    // Fallback: Try to match this terminal to a registered entry by name
+    // This handles restored terminals that don't have the env var
     const storage = terminalManager.getStorage();
     const terminalState = storage.getTerminalByName(terminal.name);
+    logger.debug('Looking for terminal by name:', terminal.name, '-> found:', !!terminalState);
 
     if (terminalState) {
       // Found matching terminal in storage - track it!
@@ -772,12 +821,14 @@ function subscribeToTerminalEvents(
     if (windowId) {
       // Untrack from memory
       terminalManager.untrackTerminal(terminal);
-      logger.info('Untracked closed terminal:', windowId);
 
       // Schedule cleanup with grace period (prevents accidental cleanup during VS Code reload)
       // The logsDir is captured from the outer scope (initResult)
       if (initResult?.logsDir) {
-        terminalManager.scheduleCleanup(windowId, initResult.logsDir);
+        const scheduled = terminalManager.scheduleCleanup(windowId, initResult.logsDir);
+        logger.info(`Terminal closed: ${windowId} - cleanup ${scheduled ? 'scheduled' : 'already pending'}`);
+      } else {
+        logger.warn(`Terminal closed: ${windowId} - cleanup NOT scheduled (logsDir missing)`);
       }
 
       // Update status bar
@@ -917,6 +968,8 @@ function setupPendingFileWatcher(
 
       if (result.added) {
         logger.info(`Registered new terminal: ${windowId} (${displayName})`);
+        // Note: Terminal tracking now happens in onDidOpenTerminal via env var check
+        // This ensures deterministic matching instead of racy "first untracked" scanning
 
         // Update status bar to reflect new terminal count
         await statusBar.update();
@@ -1000,7 +1053,8 @@ export async function activate(
     // Initialize Claude sync if enabled
     if (shouldClaudeAutoResume()) {
       const projectName = workspaceFolder.name;
-      initClaudeSync(projectName, workspaceFolder.uri.fsPath, (msg) => logger.info(msg));
+      const screenBinary = vscode.workspace.getConfiguration('immorterm').get<string>('screenBinary', 'screen-immorterm');
+      initClaudeSync(projectName, workspaceFolder.uri.fsPath, (msg) => logger.info(msg), screenBinary);
       logger.info('Claude sync initialized for project:', projectName);
 
       // Run initial sync
@@ -1047,6 +1101,28 @@ export async function activate(
 
   // Schedule periodic cleanup tasks
   schedulePeriodicCleanup(terminalManager.getStorage(), logsDir);
+
+  // Start title sync polling - checks for name changes from OSC sequences (e.g., Claude)
+  // This is needed because onDidChangeTerminalState doesn't fire for OSC title changes
+  titleSyncTimer = setInterval(async () => {
+    const storage = terminalManager.getStorage();
+
+    for (const terminal of vscode.window.terminals) {
+      const windowId = terminalManager.getWindowIdForTerminal(terminal);
+      if (windowId) {
+        const storedTerminal = storage.getTerminal(windowId);
+        if (storedTerminal && storedTerminal.name !== terminal.name) {
+          // Skip if this was a command-initiated rename
+          if (shouldSkipVsCodeSync(windowId, terminal.name, storedTerminal.name)) {
+            continue;
+          }
+          logger.debug(`Title sync detected name change: "${storedTerminal.name}" -> "${terminal.name}"`);
+          await syncUserRename(windowId, terminal.name, terminalManager);
+        }
+      }
+    }
+  }, TITLE_SYNC_INTERVAL);
+  logger.debug('Started title sync polling every', TITLE_SYNC_INTERVAL / 1000, 'seconds');
 
   // Log activation summary
   logger.info('ImmorTerm activated', {

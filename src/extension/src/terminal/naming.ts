@@ -5,6 +5,14 @@ import { buildSessionName } from '../utils/process';
 import { logger } from '../utils/logger';
 
 /**
+ * Gets the configured screen binary path from settings
+ */
+function getScreenBinary(): string {
+  const config = vscode.workspace.getConfiguration('immorterm');
+  return config.get<string>('screenBinary', 'screen-immorterm');
+}
+
+/**
  * Terminal Naming Module
  *
  * Handles terminal name generation, synchronization, and management.
@@ -148,8 +156,9 @@ export async function syncTerminalName(
     const { exec } = require('child_process');
     const { promisify } = require('util');
     const execAsync = promisify(exec);
+    const screenBinary = getScreenBinary();
 
-    await execAsync(`screen -S "${sessionName}" -X title "${screenTitle}"`);
+    await execAsync(`${screenBinary} -S "${sessionName}" -X title "${screenTitle}"`);
     logger.debug(`Set screen title to "${screenTitle}"`);
   } catch (error) {
     logger.debug(`Could not set screen title for ${sessionName}:`, error);
@@ -251,8 +260,9 @@ export async function autoRenameIfNeeded(
     const { exec } = require('child_process');
     const { promisify } = require('util');
     const execAsync = promisify(exec);
+    const screenBinary = getScreenBinary();
 
-    await execAsync(`screen -S "${sessionName}" -X title "${screenTitle}"`);
+    await execAsync(`${screenBinary} -S "${sessionName}" -X title "${screenTitle}"`);
   } catch {
     // Session might not exist yet
   }

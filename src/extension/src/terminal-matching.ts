@@ -15,6 +15,14 @@ import {
 let projectName: string;
 let logFn: (message: string) => void = console.log;
 
+/**
+ * Gets the configured screen binary path from settings
+ */
+function getScreenBinary(): string {
+    const config = vscode.workspace.getConfiguration('immorterm');
+    return config.get<string>('screenBinary', 'screen-immorterm');
+}
+
 // Maps to track terminal state
 export const terminalWindowIds = new Map<vscode.Terminal, string>();
 export const terminalLastNames = new Map<vscode.Terminal, string>();
@@ -88,7 +96,7 @@ function autoRenameTerminal(terminal: vscode.Terminal, windowId: string) {
     const sessionName = `${projectName}-${windowId}`;
     const title = `${getDatePrefix()} ${newName}`;
     try {
-        execSync(`screen -S "${sessionName}" -X title "${title}"`, {
+        execSync(`${getScreenBinary()} -S "${sessionName}" -X title "${title}"`, {
             timeout: 5000,
             stdio: 'pipe'
         });
@@ -171,7 +179,7 @@ export function syncTerminalToScreenAndJson(terminal: vscode.Terminal): boolean 
     const sessionName = `${projectName}-${windowId}`;
     const title = `${getDatePrefix()} ${name}`;
     try {
-        execSync(`screen -S "${sessionName}" -X title "${title}"`, {
+        execSync(`${getScreenBinary()} -S "${sessionName}" -X title "${title}"`, {
             timeout: 5000,
             stdio: 'pipe'
         });

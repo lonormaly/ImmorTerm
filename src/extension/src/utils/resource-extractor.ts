@@ -4,10 +4,33 @@ import * as fs from 'fs/promises';
 import { logger } from './logger';
 
 /**
+ * Version file name - stores the extension version that last extracted resources
+ * This enables force-updating resources when the extension updates
+ */
+const VERSION_FILE = '.immorterm-version';
+
+/**
  * Resource names that should be extracted from the extension bundle
  */
-const BUNDLED_SCRIPTS = ['screen-auto', 'screen-mem'] as const;
+const BUNDLED_SCRIPTS = [
+  // Core screen management
+  'screen-auto',
+  'screen-mem',
+  'screen-cleanup',
+  'screen-forget',
+  'screen-forget-all',
+  'screen-reconcile',
+  'kill-screens',
+  'log-cleanup',
+  'shell-wrapper.zsh',
+  // Claude session tracking (for resume after restart)
+  'claude-session-capture',
+  'claude-session-map',
+  'claude-session-sync',
+  'claude-session-tracker',
+] as const;
 const BUNDLED_TEMPLATES = ['screenrc.template'] as const;
+const BUNDLED_SHELL_CONFIG = ['.zshrc', 'shell-init.zsh'] as const;
 
 /**
  * Result of resource extraction
@@ -30,11 +53,23 @@ export interface ExtractionResult {
  *
  * Creates the following structure:
  * .vscode/terminals/
- * ├── screen-auto        (executable)
- * ├── screen-mem         (executable)
- * ├── screenrc           (config)
- * ├── logs/              (directory for log files)
- * └── pending/           (directory for pending terminal registrations)
+ * ├── screen-auto              (executable - main entry point)
+ * ├── screen-mem               (executable - memory helper for status bar)
+ * ├── screen-cleanup           (executable - removes stale entries)
+ * ├── screen-forget            (executable - remove single session)
+ * ├── screen-forget-all        (executable - kill all sessions)
+ * ├── screen-reconcile         (executable - reconcile pending terminals)
+ * ├── kill-screens             (executable - kill all project screens)
+ * ├── shell-wrapper.zsh        (executable - shell wrapper for ZDOTDIR)
+ * ├── claude-session-capture   (executable - capture Claude session IDs)
+ * ├── claude-session-map       (executable - interactive session mapper)
+ * ├── claude-session-sync      (executable - background session scanner)
+ * ├── claude-session-tracker   (executable - real-time session tracking)
+ * ├── screenrc                 (screen configuration)
+ * ├── .zshrc                   (custom zshrc that sources shell-init.zsh)
+ * ├── shell-init.zsh           (shell initialization with title updates)
+ * ├── logs/                    (directory for log files)
+ * └── pending/                 (directory for pending terminal registrations)
  *
  * @param context The extension context (provides path to bundled resources)
  * @param workspaceFolder The workspace folder to extract resources to
@@ -58,6 +93,22 @@ export async function extractResources(
 
   logger.debug('Created directories:', terminalsDir, logsDir, pendingDir);
 
+  // Check if we need to force update (extension version changed)
+  const currentVersion = context.extension.packageJSON.version as string;
+  const versionFilePath = path.join(terminalsDir, VERSION_FILE);
+  let forceUpdate = false;
+
+  try {
+    const storedVersion = await fs.readFile(versionFilePath, 'utf-8');
+    if (storedVersion.trim() !== currentVersion) {
+      logger.info(`Extension updated from ${storedVersion.trim()} to ${currentVersion}, forcing resource update`);
+      forceUpdate = true;
+    }
+  } catch {
+    // Version file doesn't exist - first install or old installation
+    forceUpdate = true;
+  }
+
   const extracted: string[] = [];
   const skipped: string[] = [];
 
@@ -69,7 +120,7 @@ export async function extractResources(
     const sourcePath = path.join(resourcesPath, scriptName);
     const targetPath = path.join(terminalsDir, scriptName);
 
-    const result = await extractFile(sourcePath, targetPath, true);
+    const result = await extractFile(sourcePath, targetPath, true, forceUpdate);
     if (result === 'extracted') {
       extracted.push(scriptName);
     } else {
@@ -84,7 +135,7 @@ export async function extractResources(
     const targetName = templateName.replace('.template', '');
     const targetPath = path.join(terminalsDir, targetName);
 
-    const result = await extractFile(sourcePath, targetPath, false);
+    const result = await extractFile(sourcePath, targetPath, false, forceUpdate);
     if (result === 'extracted') {
       extracted.push(targetName);
     } else {
@@ -92,9 +143,27 @@ export async function extractResources(
     }
   }
 
+  // Extract shell config files (.zshrc, shell-init.zsh)
+  for (const configName of BUNDLED_SHELL_CONFIG) {
+    const sourcePath = path.join(resourcesPath, configName);
+    const targetPath = path.join(terminalsDir, configName);
+
+    const result = await extractFile(sourcePath, targetPath, false, forceUpdate);
+    if (result === 'extracted') {
+      extracted.push(configName);
+    } else {
+      skipped.push(configName);
+    }
+  }
+
+  // Write current version to version file
+  await fs.writeFile(versionFilePath, currentVersion, 'utf-8');
+
   logger.info('Resource extraction complete:', {
     extracted: extracted.length,
     skipped: skipped.length,
+    forceUpdate,
+    version: currentVersion,
   });
 
   return {
@@ -112,20 +181,24 @@ export async function extractResources(
  * @param sourcePath Path to the bundled file
  * @param targetPath Path to extract to
  * @param makeExecutable Whether to make the file executable (chmod 755)
- * @returns 'extracted' if file was copied, 'skipped' if already exists
+ * @param forceOverwrite If true, overwrite existing files (for extension updates)
+ * @returns 'extracted' if file was copied, 'skipped' if already exists and not forcing
  */
 async function extractFile(
   sourcePath: string,
   targetPath: string,
-  makeExecutable: boolean
+  makeExecutable: boolean,
+  forceOverwrite: boolean = false
 ): Promise<'extracted' | 'skipped'> {
-  // Check if target already exists (preserve user modifications)
-  try {
-    await fs.access(targetPath);
-    logger.debug('Skipping existing file:', targetPath);
-    return 'skipped';
-  } catch {
-    // File doesn't exist, proceed with extraction
+  // Check if target already exists (preserve user modifications unless forcing)
+  if (!forceOverwrite) {
+    try {
+      await fs.access(targetPath);
+      logger.debug('Skipping existing file:', targetPath);
+      return 'skipped';
+    } catch {
+      // File doesn't exist, proceed with extraction
+    }
   }
 
   // Check if source exists
@@ -145,7 +218,7 @@ async function extractFile(
       await fs.chmod(targetPath, 0o755);
     }
 
-    logger.debug('Extracted file:', targetPath, makeExecutable ? '(executable)' : '');
+    logger.debug('Extracted file:', targetPath, makeExecutable ? '(executable)' : '', forceOverwrite ? '(force updated)' : '');
     return 'extracted';
   } catch (error) {
     logger.error('Failed to extract file:', sourcePath, '->', targetPath, error);

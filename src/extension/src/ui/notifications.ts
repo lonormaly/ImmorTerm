@@ -7,40 +7,80 @@ import { logger } from '../utils/logger';
  */
 export const notifications = {
   /**
-   * Shows a warning when GNU Screen is not installed
-   * Includes instructions for installation
+   * Shows a warning when screen-immorterm is not installed
+   * Includes instructions for installation via Homebrew
    */
   async showScreenMissing(): Promise<void> {
-    const action = await vscode.window.showWarningMessage(
-      'ImmorTerm: GNU Screen is not installed. Terminal persistence is disabled.',
-      'Install Instructions',
-      'Dismiss'
-    );
+    const config = vscode.workspace.getConfiguration('immorterm');
+    const screenBinary = config.get<string>('screenBinary', 'screen-immorterm');
+    const isMac = process.platform === 'darwin';
 
-    if (action === 'Install Instructions') {
-      // Open installation documentation
-      const isMac = process.platform === 'darwin';
-      const isLinux = process.platform === 'linux';
+    // Determine if using default (screen-immorterm) or fallback (screen)
+    const isUsingDefault = screenBinary === 'screen-immorterm';
 
-      let installCmd: string;
-      if (isMac) {
-        installCmd = 'brew install screen';
-      } else if (isLinux) {
-        installCmd = 'sudo apt-get install screen  # or: sudo yum install screen';
-      } else {
-        installCmd = 'Please install GNU Screen for your platform';
+    if (isUsingDefault && isMac) {
+      // Prompt to install screen-immorterm via Homebrew
+      const action = await vscode.window.showWarningMessage(
+        'ImmorTerm: screen-immorterm is not installed. This patched version of GNU Screen is required for full functionality.',
+        'Install via Homebrew',
+        'Use Standard Screen',
+        'Dismiss'
+      );
+
+      if (action === 'Install via Homebrew') {
+        const installCmd = 'brew install lonormaly/tap/screen-immorterm';
+
+        // Copy to clipboard and show terminal
+        await vscode.env.clipboard.writeText(installCmd);
+        vscode.window.showInformationMessage(
+          `Installation command copied to clipboard:\n\n${installCmd}\n\nPaste in a terminal to install, then reload VS Code.`,
+          'Open Terminal'
+        ).then(result => {
+          if (result === 'Open Terminal') {
+            vscode.commands.executeCommand('workbench.action.terminal.new');
+          }
+        });
+      } else if (action === 'Use Standard Screen') {
+        // Update settings to use standard screen
+        await config.update('screenBinary', 'screen', vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage(
+          'ImmorTerm: Switched to standard GNU Screen. Some features (like UTF-8 titles) may not work correctly. Reload VS Code to apply.',
+          'Reload'
+        ).then(result => {
+          if (result === 'Reload') {
+            vscode.commands.executeCommand('workbench.action.reloadWindow');
+          }
+        });
       }
+    } else {
+      // Standard screen not found - show generic install message
+      const action = await vscode.window.showWarningMessage(
+        `ImmorTerm: ${screenBinary} is not installed. Terminal persistence is disabled.`,
+        'Install Instructions',
+        'Dismiss'
+      );
 
-      const message = `Install GNU Screen:\n\n${installCmd}\n\nAfter installation, reload VS Code.`;
-
-      vscode.window.showInformationMessage(message, 'Copy Command').then(result => {
-        if (result === 'Copy Command') {
-          vscode.env.clipboard.writeText(isMac ? 'brew install screen' : 'sudo apt-get install screen');
+      if (action === 'Install Instructions') {
+        let installCmd: string;
+        if (isMac) {
+          installCmd = 'brew install lonormaly/tap/screen-immorterm';
+        } else if (process.platform === 'linux') {
+          installCmd = 'sudo apt-get install screen  # or: sudo yum install screen';
+        } else {
+          installCmd = 'Please install GNU Screen for your platform';
         }
-      });
+
+        const message = `Install GNU Screen:\n\n${installCmd}\n\nAfter installation, reload VS Code.`;
+
+        vscode.window.showInformationMessage(message, 'Copy Command').then(result => {
+          if (result === 'Copy Command') {
+            vscode.env.clipboard.writeText(installCmd);
+          }
+        });
+      }
     }
 
-    logger.info('Showed Screen missing notification');
+    logger.info('Showed Screen missing notification for:', screenBinary);
   },
 
   /**
@@ -49,7 +89,7 @@ export const notifications = {
    */
   showTerminalForget(name: string): void {
     vscode.window.showInformationMessage(
-      `ImmorTerm: Forgot terminal "${name}". Screen session terminated.`
+      `ImmorTerm: Forgot terminal "${name}". Session terminated.`
     );
     logger.info('Showed terminal forget notification:', name);
   },
@@ -60,7 +100,7 @@ export const notifications = {
    */
   showAllTerminalsForgotten(count: number): void {
     vscode.window.showInformationMessage(
-      `ImmorTerm: Forgot ${count} terminal${count !== 1 ? 's' : ''}. All Screen sessions terminated.`
+      `ImmorTerm: Forgot ${count} terminal${count !== 1 ? 's' : ''}. All sessions terminated.`
     );
     logger.info('Showed all terminals forgotten notification:', count);
   },
@@ -88,7 +128,7 @@ export const notifications = {
    */
   showSessionsKilled(count: number): void {
     vscode.window.showInformationMessage(
-      `ImmorTerm: Killed ${count} Screen session${count !== 1 ? 's' : ''}.`
+      `ImmorTerm: Killed ${count} session${count !== 1 ? 's' : ''}.`
     );
     logger.info('Showed sessions killed notification:', count);
   },

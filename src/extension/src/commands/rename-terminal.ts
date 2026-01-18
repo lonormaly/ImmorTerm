@@ -16,6 +16,14 @@ import { logger } from '../utils/logger';
 
 const execAsync = promisify(exec);
 
+/**
+ * Gets the configured screen binary path from settings
+ */
+function getScreenBinary(): string {
+  const config = vscode.workspace.getConfiguration('immorterm');
+  return config.get<string>('screenBinary', 'screen-immorterm');
+}
+
 export interface RenameTerminalResult {
   success: boolean;
   windowId?: string;
@@ -82,7 +90,7 @@ export async function renameTerminal(
       day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
     }).replace(',', '-').replace(' ', '');
     const fullTitle = `${timestamp} ${trimmedName}`;
-    await execAsync(`screen -S "${sessionName}" -X title "${fullTitle}"`);
+    await execAsync(`${getScreenBinary()} -S "${sessionName}" -X title "${fullTitle}"`);
     logger.debug(`Set screen title to "${fullTitle}"`);
 
     // 2. Write pending rename file for the shell to pick up

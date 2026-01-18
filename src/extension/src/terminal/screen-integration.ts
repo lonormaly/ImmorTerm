@@ -91,6 +91,9 @@ export function createTerminalWithScreen(options: CreateTerminalOptions): vscode
     isRestoration,
   });
 
+  // Get configured screen binary
+  const screenBinary = vscode.workspace.getConfiguration('immorterm').get<string>('screenBinary', 'screen-immorterm');
+
   // Create the terminal with screen-auto as the shell command
   const terminal = vscode.window.createTerminal({
     name,
@@ -101,6 +104,7 @@ export function createTerminalWithScreen(options: CreateTerminalOptions): vscode
     env: {
       IMMORTERM_WINDOW_ID: windowId,
       IMMORTERM_TERMINAL_NAME: name,
+      IMMORTERM_SCREEN_BINARY: screenBinary,
     },
   });
 

@@ -119,6 +119,10 @@
         }
       ]
     },
+    "configurationDefaults": {
+      "terminal.integrated.tabs.title": "${sequence}",
+      "terminal.integrated.tabs.enabled": true
+    },
     "configuration": {
       "title": "ImmorTerm",
       "properties": {
@@ -219,6 +223,12 @@
           "maximum": 300000,
           "description": "Claude session sync interval in milliseconds",
           "markdownDescription": "Interval in milliseconds for syncing Claude session state.\n\n**Lower values** provide more frequent saves but may impact performance.\n\n**Example**: `10000` (10s) for frequent saves, `60000` (1 min) for less overhead."
+        },
+        "immorterm.screenBinary": {
+          "type": "string",
+          "default": "screen-immorterm",
+          "description": "Path to the GNU Screen binary",
+          "markdownDescription": "Path to the GNU Screen binary.\n\n**Default**: `screen-immorterm` (ImmorTerm's patched version with UTF-8 title support)\n\n**Install**: `brew install lonormaly/tap/screen-immorterm`\n\n**Fallback**: Set to `screen` to use the standard GNU Screen (some features may not work correctly)"
         }
       }
     }
