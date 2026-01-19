@@ -84,6 +84,52 @@ export function updateJsonName(windowId: string, newName: string) {
 }
 
 /**
+ * Update the theme in restore-terminals.json for a given window ID
+ * @param windowId The window ID to update
+ * @param theme The theme name, or undefined to clear the per-terminal theme
+ */
+export function updateJsonTheme(windowId: string, theme: string | undefined) {
+    if (!fs.existsSync(jsonPath)) {
+        logFn('restore-terminals.json not found');
+        return;
+    }
+
+    try {
+        const config = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+        let modified = false;
+
+        for (const tab of config.terminals || []) {
+            for (const split of tab.splitTerminals || []) {
+                const id = split.windowId || extractWindowIdFromCommands(split.commands);
+                if (id === windowId) {
+                    if (theme) {
+                        if (split.theme !== theme) {
+                            logFn(`JSON theme update for ${windowId}: "${split.theme || 'none'}" → "${theme}"`);
+                            split.theme = theme;
+                            modified = true;
+                        }
+                    } else {
+                        // Clear the theme
+                        if (split.theme) {
+                            logFn(`JSON theme cleared for ${windowId}`);
+                            delete split.theme;
+                            modified = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (modified) {
+            fs.writeFileSync(jsonPath, JSON.stringify(config, null, 2) + '\n');
+            logFn('Updated restore-terminals.json (theme)');
+        }
+    } catch (error) {
+        logFn(`Error updating JSON theme: ${error}`);
+    }
+}
+
+/**
  * Update both name and command in restore-terminals.json for a given window ID
  * The command is updated to include the display name so screen-auto uses it for the tab title
  */
@@ -116,7 +162,7 @@ export function updateJsonNameAndCommand(windowId: string, newName: string) {
                         modified = true;
                     }
 
-                    const newCommand = `exec .vscode/terminals/screen-auto ${windowId} ${newName}`;
+                    const newCommand = `exec .vscode/terminals/screen-auto ${windowId} "${newName}"`;
                     if (split.commands && split.commands.length > 0) {
                         if (split.commands[0] !== newCommand) {
                             logFn(`JSON update command → "${newCommand}"`);
@@ -277,7 +323,7 @@ export function addTerminalToJson(windowId: string, displayName: string): boolea
         }
 
         // Create the command that screen-auto uses
-        const command = `exec .vscode/terminals/screen-auto ${windowId} ${displayName}`;
+        const command = `exec .vscode/terminals/screen-auto ${windowId} "${displayName}"`;
 
         // Add new terminal entry
         config.terminals.push({
@@ -343,12 +389,12 @@ export function removeTerminalFromJson(windowId: string): boolean {
  * Get all terminals from restore-terminals.json
  * Returns array of {windowId, name, claudeSessionId} for restoration
  */
-export function getAllTerminalsFromJson(): Array<{ windowId: string; name: string; claudeSessionId?: string }> {
+export function getAllTerminalsFromJson(): Array<{ windowId: string; name: string; claudeSessionId?: string; theme?: string }> {
     if (!fs.existsSync(jsonPath)) return [];
 
     try {
         const config = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-        const terminals: Array<{ windowId: string; name: string; claudeSessionId?: string }> = [];
+        const terminals: Array<{ windowId: string; name: string; claudeSessionId?: string; theme?: string }> = [];
 
         for (const tab of config.terminals || []) {
             for (const split of tab.splitTerminals || []) {
@@ -357,7 +403,8 @@ export function getAllTerminalsFromJson(): Array<{ windowId: string; name: strin
                     terminals.push({
                         windowId,
                         name: split.name,
-                        claudeSessionId: split.claudeSessionId
+                        claudeSessionId: split.claudeSessionId,
+                        theme: split.theme
                     });
                 }
             }

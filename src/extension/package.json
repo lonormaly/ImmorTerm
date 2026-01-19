@@ -77,6 +77,14 @@
       {
         "command": "immorterm.disableForProject",
         "title": "ImmorTerm: Disable for This Project"
+      },
+      {
+        "command": "immorterm.applyTheme",
+        "title": "ImmorTerm: Set Theme for This Project"
+      },
+      {
+        "command": "immorterm.setTerminalTheme",
+        "title": "ImmorTerm: Set Theme for This Terminal"
       }
     ],
     "keybindings": [
@@ -126,6 +134,49 @@
     "configuration": {
       "title": "ImmorTerm",
       "properties": {
+        "immorterm.statusBarTheme": {
+          "type": "string",
+          "default": "Purple Haze",
+          "order": 1,
+          "enum": [
+            "Purple Haze",
+            "Ocean Depths",
+            "Forest Canopy",
+            "Sunset Glow",
+            "Midnight Blue",
+            "Rose Gold",
+            "Cyberpunk",
+            "Nord",
+            "Dracula",
+            "Monokai",
+            "Solarized Dark",
+            "Gruvbox",
+            "Tokyo Night",
+            "One Dark",
+            "Catppuccin",
+            "Synthwave"
+          ],
+          "enumItemLabels": [
+            "🟣 Purple Haze",
+            "🔵 Ocean Depths",
+            "🟢 Forest Canopy",
+            "🟠 Sunset Glow",
+            "🔷 Midnight Blue",
+            "🩷 Rose Gold",
+            "💜 Cyberpunk",
+            "🧊 Nord",
+            "🧛 Dracula",
+            "🌈 Monokai",
+            "☀️ Solarized Dark",
+            "🟤 Gruvbox",
+            "🌃 Tokyo Night",
+            "🌑 One Dark",
+            "🐱 Catppuccin",
+            "🌆 Synthwave"
+          ],
+          "description": "Color theme for the terminal status bar",
+          "markdownDescription": "**Color theme for the terminal status bar.**\n\nAfter changing, run **ImmorTerm: Apply Theme** from the Command Palette (Cmd+Shift+P) and open a new terminal.\n\n---\n\n🟣 Purple Haze • 🔵 Ocean Depths • 🟢 Forest Canopy • 🟠 Sunset Glow\n\n🔷 Midnight Blue • 🩷 Rose Gold • 💜 Cyberpunk • 🧊 Nord\n\n🧛 Dracula • 🌈 Monokai • ☀️ Solarized Dark • 🟤 Gruvbox\n\n🌃 Tokyo Night • 🌑 One Dark • 🐱 Catppuccin • 🌆 Synthwave"
+        },
         "immorterm.scrollbackBuffer": {
           "type": "number",
           "default": 50000,
@@ -226,9 +277,9 @@
         },
         "immorterm.screenBinary": {
           "type": "string",
-          "default": "screen-immorterm",
+          "default": "immorterm",
           "description": "Path to the GNU Screen binary",
-          "markdownDescription": "Path to the GNU Screen binary.\n\n**Default**: `screen-immorterm` (ImmorTerm's patched version with UTF-8 title support)\n\n**Install**: `brew install lonormaly/tap/screen-immorterm`\n\n**Fallback**: Set to `screen` to use the standard GNU Screen (some features may not work correctly)"
+          "markdownDescription": "Path to the GNU Screen binary.\n\n**Default**: `immorterm` (ImmorTerm's patched version with UTF-8 title support)\n\n**Install**: `brew install lonormaly/tap/immorterm`\n\n**Fallback**: Set to `screen` to use the standard GNU Screen (some features may not work correctly)"
         }
       }
     }

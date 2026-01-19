@@ -47,7 +47,7 @@ import {
 } from './commands';
 import { shouldAutoCleanupStale, getClaudeSyncInterval, shouldClaudeAutoResume } from './utils/settings';
 import { screenCommands } from './utils/screen-commands';
-import { initJsonUtils, updateJsonNameAndCommand, getAllTerminalsFromJson } from './json-utils';
+import { initJsonUtils, updateJsonNameAndCommand, updateJsonTheme, getAllTerminalsFromJson } from './json-utils';
 import { initClaudeSync, syncClaudeSessions } from './claude-sync';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -107,28 +107,16 @@ async function syncUserRename(
   await terminalManager.updateTerminalName(windowId, newName);
   updateJsonNameAndCommand(windowId, newName);
 
-  // Update screen title
+  // Update screen title (clean name only - no timestamp prefix)
   const projectName = terminalManager.getProjectName();
   const sessionName = `${projectName}-${windowId}`;
-  const timestamp = new Date().toLocaleDateString('en-GB', {
-    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
-  }).replace(',', '-').replace(' ', '');
-  await screenCommands.setWindowTitle(sessionName, `${timestamp} ${newName}`);
+  await screenCommands.setWindowTitle(sessionName, newName);
 
-  // Write pending-renames file so shell's precmd hook updates SCREEN_WINDOW_NAME
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (workspaceFolder) {
-    const pendingDir = path.join(workspaceFolder, '.vscode', 'terminals', 'pending-renames');
-    try {
-      await fs.mkdir(pendingDir, { recursive: true });
-      await fs.writeFile(path.join(pendingDir, sessionName), newName, 'utf-8');
-      logger.debug('Wrote pending rename file for shell:', sessionName);
-    } catch (err) {
-      logger.warn('Failed to write pending rename file:', err);
-    }
-  }
+  // Set pending rename via screen environment variable (cleaner than file-based IPC)
+  // The shell's precmd hook will query this via `screen -Q echo` and update IMMORTERM_BASE_NAME
+  await screenCommands.setEnv(sessionName, 'IMMORTERM_PENDING_RENAME', newName);
 
-  logger.info('Synced user rename to storage, JSON, screen, and shell:', windowId, '->', newName);
+  logger.info('Synced user rename to storage, JSON, and screen:', windowId, '->', newName);
 }
 
 /**
@@ -189,7 +177,7 @@ class ImmorTermProfileProvider implements vscode.TerminalProfileProvider {
     // The screen-auto script sends an OSC sequence immediately at startup to set the initial title.
 
     // Get configured screen binary
-    const screenBinary = vscode.workspace.getConfiguration('immorterm').get<string>('screenBinary', 'screen-immorterm');
+    const screenBinary = vscode.workspace.getConfiguration('immorterm').get<string>('screenBinary', 'immorterm');
 
     return new vscode.TerminalProfile({
       shellPath: '/bin/bash',
@@ -218,9 +206,9 @@ async function migrateDefaultProfileSettings(): Promise<void> {
 
     if (currentValue === 'screen') {
       try {
-        // Update to the new profile ID
-        await config.update(settingKey, 'immorterm.screen', vscode.ConfigurationTarget.Global);
-        logger.info(`Migrated default profile setting for ${platform}: screen → immorterm.screen`);
+        // Update to the new profile title (VS Code uses title, not ID)
+        await config.update(settingKey, 'ImmorTerm', vscode.ConfigurationTarget.Global);
+        logger.info(`Migrated default profile setting for ${platform}: screen → ImmorTerm`);
       } catch (err) {
         logger.warn(`Failed to migrate default profile for ${platform}:`, err);
       }
@@ -599,7 +587,7 @@ function registerCommands(
   context.subscriptions.push(renameTerminalCmd);
 
   // Command: Enable for This Project
-  // Creates .vscode/settings.json with ImmorTerm as default terminal profile
+  // Shows theme picker wizard, then creates .vscode/settings.json with ImmorTerm as default
   const enableForProjectCmd = vscode.commands.registerCommand(
     'immorterm.enableForProject',
     async () => {
@@ -611,12 +599,35 @@ function registerCommands(
 
       const fs = await import('fs/promises');
       const path = await import('path');
+      const { getThemeNames, getTheme, generateHardstatus, themeLabels } = await import('./themes');
+
+      const themeNames = getThemeNames();
+      const themeItems = themeNames.map(name => ({
+        label: themeLabels[name] || name,
+        description: name === 'Purple Haze' ? '(default)' : undefined,
+        themeName: name,
+      }));
+
+      const selectedTheme = await vscode.window.showQuickPick(themeItems, {
+        placeHolder: 'Select a status bar theme for ImmorTerm',
+        title: 'ImmorTerm Setup - Choose Theme',
+      });
+
+      if (!selectedTheme) {
+        // User cancelled
+        return;
+      }
+
       const vscodeDir = path.join(workspaceFolder.uri.fsPath, '.vscode');
       const settingsPath = path.join(vscodeDir, 'settings.json');
+      const terminalsDir = path.join(vscodeDir, 'terminals');
+      const screenrcPath = path.join(terminalsDir, 'screenrc');
+      const templatePath = path.join(context.extensionPath, 'resources', 'screenrc.template');
 
       try {
-        // Ensure .vscode directory exists
+        // Ensure directories exist
         await fs.mkdir(vscodeDir, { recursive: true });
+        await fs.mkdir(terminalsDir, { recursive: true });
 
         // Read existing settings or start fresh
         let settings: Record<string, unknown> = {};
@@ -627,24 +638,31 @@ function registerCommands(
           // File doesn't exist or is invalid, start fresh
         }
 
-        // Check if already enabled
-        const osxProfile = settings['terminal.integrated.defaultProfile.osx'];
-        const linuxProfile = settings['terminal.integrated.defaultProfile.linux'];
-
-        if (osxProfile === 'ImmorTerm' || linuxProfile === 'ImmorTerm') {
-          vscode.window.showInformationMessage('ImmorTerm: Already enabled for this project');
-          return;
-        }
-
-        // Add ImmorTerm as default terminal profile (use profile title, not ID)
+        // Add ImmorTerm as default terminal profile and save theme selection
         settings['terminal.integrated.defaultProfile.osx'] = 'ImmorTerm';
         settings['terminal.integrated.defaultProfile.linux'] = 'ImmorTerm';
+        settings['immorterm.statusBarTheme'] = selectedTheme.themeName;
 
         // Write updated settings
         await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
 
+        // Apply theme to screenrc if it exists, or create it
+        try {
+          const templateContent = await fs.readFile(templatePath, 'utf-8');
+          const theme = getTheme(selectedTheme.themeName);
+          const themedHardstatus = `hardstatus alwayslastline ${generateHardstatus(theme)}`;
+          const themedContent = templateContent.replace(
+            /^hardstatus alwayslastline .+$/m,
+            themedHardstatus
+          );
+          await fs.writeFile(screenrcPath, themedContent, 'utf-8');
+          logger.info('Applied theme to screenrc:', selectedTheme.themeName);
+        } catch {
+          // Template might not exist yet, that's okay - it will be created on first terminal
+        }
+
         vscode.window.showInformationMessage(
-          'ImmorTerm: Enabled for this project! New terminals will be immortal.',
+          `ImmorTerm enabled with "${selectedTheme.themeName}" theme! Open a new terminal to start.`,
           'Reload Window'
         ).then((selection) => {
           if (selection === 'Reload Window') {
@@ -652,7 +670,7 @@ function registerCommands(
           }
         });
 
-        logger.info('Enabled ImmorTerm for project:', workspaceFolder.name);
+        logger.info('Enabled ImmorTerm for project:', workspaceFolder.name, 'with theme:', selectedTheme.themeName);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         vscode.window.showErrorMessage(`ImmorTerm: Failed to enable - ${message}`);
@@ -728,6 +746,254 @@ function registerCommands(
   );
   context.subscriptions.push(disableForProjectCmd);
 
+  // Command: Apply Theme
+  // Shows theme picker and applies the selected theme to screenrc
+  const applyThemeCmd = vscode.commands.registerCommand(
+    'immorterm.applyTheme',
+    async () => {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        vscode.window.showWarningMessage('ImmorTerm: No workspace folder open');
+        return;
+      }
+
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const { getTheme, generateHardstatus, getThemeNames, themeLabels } = await import('./themes');
+
+      const terminalsDir = path.join(workspaceFolder.uri.fsPath, '.vscode', 'terminals');
+      const screenrcPath = path.join(terminalsDir, 'screenrc');
+      const templatePath = path.join(context.extensionPath, 'resources', 'screenrc.template');
+
+      try {
+        // Check if screenrc exists
+        await fs.access(screenrcPath);
+      } catch {
+        vscode.window.showWarningMessage('ImmorTerm: No screenrc found. Open a terminal first.');
+        return;
+      }
+
+      // Get current theme
+      const config = vscode.workspace.getConfiguration('immorterm');
+      const currentTheme = config.get<string>('statusBarTheme', 'Purple Haze');
+
+      const themeNames = getThemeNames();
+      const themeItems = themeNames.map(name => ({
+        label: themeLabels[name] || name,
+        description: name === currentTheme ? '(current)' : undefined,
+        themeName: name,
+      }));
+
+      const selectedTheme = await vscode.window.showQuickPick(themeItems, {
+        placeHolder: 'Select a theme to apply',
+        title: 'ImmorTerm - Apply Theme',
+      });
+
+      if (!selectedTheme) {
+        return; // User cancelled
+      }
+
+      try {
+        // Read the template
+        const templateContent = await fs.readFile(templatePath, 'utf-8');
+        const theme = getTheme(selectedTheme.themeName);
+
+        // Generate the themed hardstatus line
+        const themedHardstatus = `hardstatus alwayslastline ${generateHardstatus(theme)}`;
+
+        // Replace the hardstatus line in the template
+        const themedContent = templateContent.replace(
+          /^hardstatus alwayslastline .+$/m,
+          themedHardstatus
+        );
+
+        // Write the themed screenrc
+        await fs.writeFile(screenrcPath, themedContent, 'utf-8');
+
+        // Save theme to workspace settings
+        await config.update('statusBarTheme', selectedTheme.themeName, vscode.ConfigurationTarget.Workspace);
+
+        // Auto-apply theme to all open terminals without per-terminal override
+        const screenBinary = config.get<string>('screenBinary', 'immorterm');
+        const hardstatusLine = generateHardstatus(theme);
+
+        // Get project name for computing screenSession
+        const projectName = workspaceFolder.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
+        // Read terminals from JSON (source of truth) instead of just workspaceState
+        const { getAllTerminalsFromJson } = await import('./json-utils');
+        const allTerminals = getAllTerminalsFromJson();
+
+        logger.info('Auto-applying theme to terminals. Total terminals from JSON:', allTerminals.length);
+
+        let appliedCount = 0;
+        let skippedCount = 0;
+
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const execAsync = promisify(exec);
+
+        for (const terminal of allTerminals) {
+          // Compute screenSession from projectName and windowId
+          const screenSession = `${projectName}-${terminal.windowId}`;
+
+          logger.info('Processing terminal:', terminal.name, 'windowId:', terminal.windowId, 'screenSession:', screenSession, 'theme:', terminal.theme || '(none)');
+
+          if (terminal.theme) {
+            // Has per-terminal theme override - skip
+            skippedCount++;
+            logger.info('Skipping terminal with per-terminal theme:', terminal.name, '->', terminal.theme);
+            continue;
+          }
+
+          if (!terminal.windowId) {
+            logger.info('Skipping terminal without windowId:', terminal.name);
+            continue;
+          }
+
+          try {
+            const command = `${screenBinary} -S "${screenSession}" -X hardstatus alwayslastline ${hardstatusLine}`;
+            logger.info('Executing command:', command);
+            await execAsync(command);
+            appliedCount++;
+            logger.info('Applied project theme to terminal:', terminal.name);
+          } catch (execErr) {
+            // Screen command failed - might be a stale session
+            logger.info('Failed to apply theme to terminal:', terminal.name, 'error:', execErr);
+          }
+        }
+
+        const message = skippedCount > 0
+          ? `ImmorTerm: Applied "${selectedTheme.themeName}" theme to ${appliedCount} terminal(s). ${skippedCount} terminal(s) have custom themes.`
+          : `ImmorTerm: Applied "${selectedTheme.themeName}" theme to ${appliedCount} terminal(s).`;
+
+        vscode.window.showInformationMessage(message);
+        logger.info('Applied theme:', selectedTheme.themeName, 'to', screenrcPath, `(${appliedCount} terminals updated, ${skippedCount} skipped)`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`ImmorTerm: Failed to apply theme - ${message}`);
+        logger.error('Failed to apply theme:', err);
+      }
+    }
+  );
+  context.subscriptions.push(applyThemeCmd);
+
+  // Command: Set Theme for Current Terminal
+  // Sets a per-terminal theme that persists on restore
+  const setTerminalThemeCmd = vscode.commands.registerCommand(
+    'immorterm.setTerminalTheme',
+    async () => {
+      const activeTerminal = vscode.window.activeTerminal;
+      if (!activeTerminal) {
+        vscode.window.showWarningMessage('ImmorTerm: No active terminal');
+        return;
+      }
+
+      const windowId = terminalManager.getWindowIdForTerminal(activeTerminal);
+      if (!windowId) {
+        vscode.window.showWarningMessage('ImmorTerm: Current terminal is not tracked by ImmorTerm');
+        return;
+      }
+
+      const storage = terminalManager.getStorage();
+      const terminalState = storage.getTerminal(windowId);
+      if (!terminalState) {
+        vscode.window.showWarningMessage('ImmorTerm: Terminal not found in storage');
+        return;
+      }
+
+      const { getTheme, generateHardstatus, getThemeNames, themeLabels } = await import('./themes');
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+
+      // Get current theme (per-terminal if set, otherwise project default)
+      const config = vscode.workspace.getConfiguration('immorterm');
+      const projectDefault = config.get<string>('statusBarTheme', 'Purple Haze');
+      const currentTheme = terminalState.theme || projectDefault;
+
+      const themeNames = getThemeNames();
+      const themeItems = themeNames.map(name => ({
+        label: themeLabels[name] || name,
+        description: name === currentTheme
+          ? (terminalState.theme ? '(current - per-terminal)' : '(current - project default)')
+          : undefined,
+        themeName: name,
+      }));
+
+      // Add option to clear per-terminal theme
+      const clearOption = {
+        label: '$(close) Clear per-terminal theme',
+        description: `Use project default (${projectDefault})`,
+        themeName: '',
+      };
+      themeItems.unshift(clearOption);
+
+      const selectedTheme = await vscode.window.showQuickPick(themeItems, {
+        placeHolder: `Select theme for "${terminalState.name}"`,
+        title: 'ImmorTerm - Set Terminal Theme',
+      });
+
+      if (!selectedTheme) {
+        return; // User cancelled
+      }
+
+      try {
+        // Determine the actual theme to apply
+        const themeName = selectedTheme.themeName || projectDefault;
+        const theme = getTheme(themeName);
+        const hardstatusLine = generateHardstatus(theme);
+
+        // Update the terminal state in workspaceState
+        if (selectedTheme.themeName) {
+          await storage.updateTerminal(windowId, { theme: selectedTheme.themeName });
+          logger.info('Set per-terminal theme:', terminalState.name, '->', selectedTheme.themeName);
+        } else {
+          // Clear per-terminal theme (set to undefined)
+          const state = storage.getState();
+          const terminal = state.terminals.find(t => t.windowId === windowId);
+          if (terminal) {
+            delete terminal.theme;
+            await storage.setState(state);
+          }
+          logger.info('Cleared per-terminal theme for:', terminalState.name, '(using project default:', projectDefault, ')');
+        }
+
+        // Also update restore-terminals.json
+        updateJsonTheme(windowId, selectedTheme.themeName || undefined);
+
+        // Apply theme to running screen session via screen -X
+        const screenBinary = config.get<string>('screenBinary', 'immorterm');
+        const screenSession = terminalState.screenSession;
+
+        // Use screen -X to send the hardstatus command to the running session
+        const command = `${screenBinary} -S "${screenSession}" -X hardstatus alwayslastline ${hardstatusLine}`;
+
+        try {
+          await execAsync(command);
+          vscode.window.showInformationMessage(
+            selectedTheme.themeName
+              ? `ImmorTerm: Applied "${selectedTheme.themeName}" theme to "${terminalState.name}"`
+              : `ImmorTerm: Cleared theme for "${terminalState.name}" (using project default)`
+          );
+        } catch (execErr) {
+          // Screen command failed - theme will still apply on next restore
+          logger.warn('Failed to apply theme to running session (will apply on next restore):', execErr);
+          vscode.window.showInformationMessage(
+            selectedTheme.themeName
+              ? `ImmorTerm: Theme "${selectedTheme.themeName}" saved for "${terminalState.name}" (will apply on next terminal open)`
+              : `ImmorTerm: Theme cleared for "${terminalState.name}" (will apply on next terminal open)`
+          );
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`ImmorTerm: Failed to set theme - ${message}`);
+        logger.error('Failed to set terminal theme:', err);
+      }
+    }
+  );
+  context.subscriptions.push(setTerminalThemeCmd);
+
   // TEST Command: Try to set terminal title via sendText with OSC
   const testTitleCmd = vscode.commands.registerCommand(
     'immorterm.testTitle',
@@ -755,7 +1021,7 @@ function registerCommands(
   );
   context.subscriptions.push(testTitleCmd);
 
-  logger.info('Registered 9 commands');
+  logger.info('Registered 10 commands');
 }
 
 /**
@@ -1053,7 +1319,7 @@ export async function activate(
     // Initialize Claude sync if enabled
     if (shouldClaudeAutoResume()) {
       const projectName = workspaceFolder.name;
-      const screenBinary = vscode.workspace.getConfiguration('immorterm').get<string>('screenBinary', 'screen-immorterm');
+      const screenBinary = vscode.workspace.getConfiguration('immorterm').get<string>('screenBinary', 'immorterm');
       initClaudeSync(projectName, workspaceFolder.uri.fsPath, (msg) => logger.info(msg), screenBinary);
       logger.info('Claude sync initialized for project:', projectName);
 
@@ -1151,13 +1417,26 @@ export async function activate(
   }
 
   // Sync terminal names from restore-terminals.json to WorkspaceStorage
-  // This ensures names edited in JSON or from external sources are respected
+  // This ensures names and themes edited in JSON or from external sources are respected
   const jsonTerminals = getAllTerminalsFromJson();
   for (const jsonTerm of jsonTerminals) {
     const storedTerm = terminalManager.getStorage().getTerminal(jsonTerm.windowId);
-    if (storedTerm && storedTerm.name !== jsonTerm.name) {
-      logger.info(`Syncing name from JSON: "${storedTerm.name}" -> "${jsonTerm.name}" for ${jsonTerm.windowId}`);
-      await terminalManager.getStorage().updateTerminal(jsonTerm.windowId, { name: jsonTerm.name });
+    if (storedTerm) {
+      const updates: { name?: string; theme?: string } = {};
+
+      if (storedTerm.name !== jsonTerm.name) {
+        logger.info(`Syncing name from JSON: "${storedTerm.name}" -> "${jsonTerm.name}" for ${jsonTerm.windowId}`);
+        updates.name = jsonTerm.name;
+      }
+
+      if (storedTerm.theme !== jsonTerm.theme) {
+        logger.info(`Syncing theme from JSON: "${storedTerm.theme || 'none'}" -> "${jsonTerm.theme || 'none'}" for ${jsonTerm.windowId}`);
+        updates.theme = jsonTerm.theme;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await terminalManager.getStorage().updateTerminal(jsonTerm.windowId, updates);
+      }
     }
   }
 

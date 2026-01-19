@@ -5,37 +5,52 @@
 # Only run inside screen sessions
 [[ -z "$STY" ]] && return
 
-# Use the same screen binary that created this session (screen vs screen-immorterm use different sockets)
-SCREEN_CMD="${IMMORTERM_SCREEN_BINARY:-screen-immorterm}"
+# Use the same screen binary that created this session (screen vs immorterm use different sockets)
+SCREEN_CMD="${IMMORTERM_SCREEN_BINARY:-immorterm}"
 
-# Initialize SCREEN_WINDOW_NAME if not already set by screen-auto
-if [[ -z "${SCREEN_WINDOW_NAME:-}" ]]; then
-    export SCREEN_WINDOW_NAME="zsh"
+# Initialize base name (separate from display name to prevent timestamp pollution)
+# IMMORTERM_BASE_NAME stores ONLY the base name, never timestamps
+if [[ -z "${IMMORTERM_BASE_NAME:-}" ]]; then
+    export IMMORTERM_BASE_NAME="${SCREEN_WINDOW_NAME:-zsh}"
 fi
 
-# WORKING VERSION - no flicker
-# Updates on every command, no screen -Q queries, no OSC sequences
+# Track last update time for debouncing (prevents rapid-fire updates during Claude sessions)
+_IMMORTERM_LAST_UPDATE=0
+
+# WORKING VERSION - with debouncing and screen setenv for renames
 _immorterm_title_update() {
-    # Check for pending rename from VS Code (Ctrl-Shift-R)
-    # Extract session name from $STY (format: "pid.sessionname")
-    local session_name="${STY#*.}"
-    local pending_file="${SCREEN_PROJECT_DIR}/.vscode/terminals/pending-renames/${session_name}"
-    if [[ -f "$pending_file" ]]; then
-        local new_name
-        new_name=$(<"$pending_file")
-        if [[ -n "$new_name" ]]; then
-            export SCREEN_WINDOW_NAME="$new_name"
-        fi
-        rm -f "$pending_file"
+    # Debounce: skip if updated within last 2 seconds
+    # This prevents visual artifacts during rapid terminal output (e.g., Claude interactive)
+    local now=$(date +%s)
+    if (( now - _IMMORTERM_LAST_UPDATE < 2 )); then
+        return
+    fi
+    _IMMORTERM_LAST_UPDATE=$now
+
+    # Check for pending rename via screen environment (set by VS Code rename command)
+    # This replaces the file-based IPC approach for cleaner communication
+    local pending_name
+    pending_name=$("$SCREEN_CMD" -Q echo '$IMMORTERM_PENDING_RENAME' 2>/dev/null)
+    # screen -Q returns the literal string if not set, so check for both empty and unexpanded
+    if [[ -n "$pending_name" && "$pending_name" != '$IMMORTERM_PENDING_RENAME' ]]; then
+        export IMMORTERM_BASE_NAME="$pending_name"
+        # Clear the pending rename so it's not picked up again
+        "$SCREEN_CMD" -X setenv IMMORTERM_PENDING_RENAME "" 2>/dev/null
     fi
 
-    local title="$(date '+%d/%m-%H:%M') ${SCREEN_WINDOW_NAME}"
-    "$SCREEN_CMD" -X title "$title" 2>/dev/null
+    # Screen title is just the base name (timestamp shown separately on right side of status bar)
+    # Note: Last activity time is tracked via log file mtime, not shell hooks
+    "$SCREEN_CMD" -X title "$IMMORTERM_BASE_NAME" 2>/dev/null
 
-    # Send OSC sequence directly to the outer terminal (VS Code), bypassing screen's interception
-    # /dev/tty goes to the controlling terminal which is VS Code's PTY
-    printf '\033]0;%s\007' "$title" > /dev/tty
+    # VS Code tab gets clean name without timestamp
+    # OSC 0 sequence goes directly to VS Code's PTY, bypassing screen
+    printf '\033]0;%s\007' "$IMMORTERM_BASE_NAME" > /dev/tty
 }
+
+# Remove any conflicting screen title hooks from user's .zshrc
+# (These might have been registered before shell-init.zsh and would override our clean titles)
+precmd_functions=(${precmd_functions:#_screen_title_update})
+preexec_functions=(${preexec_functions:#_screen_title_update})
 
 # Register precmd hook
 if [[ ! " ${precmd_functions[*]} " =~ " _immorterm_title_update " ]]; then
@@ -61,8 +76,8 @@ sname() {
         "$SCREEN_CMD" -X title "$pinned_title" 2>/dev/null
         printf '\033]0;%s\007' "$pinned_title" > /dev/tty
     else
-        # Normal mode
-        export SCREEN_WINDOW_NAME="$name"
+        # Normal mode - update the base name
+        export IMMORTERM_BASE_NAME="$name"
         # Re-add hook if removed
         if [[ ! " ${precmd_functions[*]} " =~ " _immorterm_title_update " ]]; then
             precmd_functions+=(_immorterm_title_update)

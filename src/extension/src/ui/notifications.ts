@@ -7,28 +7,28 @@ import { logger } from '../utils/logger';
  */
 export const notifications = {
   /**
-   * Shows a warning when screen-immorterm is not installed
+   * Shows a warning when immorterm is not installed
    * Includes instructions for installation via Homebrew
    */
   async showScreenMissing(): Promise<void> {
     const config = vscode.workspace.getConfiguration('immorterm');
-    const screenBinary = config.get<string>('screenBinary', 'screen-immorterm');
+    const screenBinary = config.get<string>('screenBinary', 'immorterm');
     const isMac = process.platform === 'darwin';
 
-    // Determine if using default (screen-immorterm) or fallback (screen)
-    const isUsingDefault = screenBinary === 'screen-immorterm';
+    // Determine if using default (immorterm) or fallback (screen)
+    const isUsingDefault = screenBinary === 'immorterm';
 
     if (isUsingDefault && isMac) {
-      // Prompt to install screen-immorterm via Homebrew
+      // Prompt to install immorterm via Homebrew
       const action = await vscode.window.showWarningMessage(
-        'ImmorTerm: screen-immorterm is not installed. This patched version of GNU Screen is required for full functionality.',
+        'ImmorTerm: immorterm is not installed. This patched version of GNU Screen is required for full functionality.',
         'Install via Homebrew',
         'Use Standard Screen',
         'Dismiss'
       );
 
       if (action === 'Install via Homebrew') {
-        const installCmd = 'brew install lonormaly/tap/screen-immorterm';
+        const installCmd = 'brew install lonormaly/tap/immorterm';
 
         // Copy to clipboard and show terminal
         await vscode.env.clipboard.writeText(installCmd);
@@ -63,7 +63,7 @@ export const notifications = {
       if (action === 'Install Instructions') {
         let installCmd: string;
         if (isMac) {
-          installCmd = 'brew install lonormaly/tap/screen-immorterm';
+          installCmd = 'brew install lonormaly/tap/immorterm';
         } else if (process.platform === 'linux') {
           installCmd = 'sudo apt-get install screen  # or: sudo yum install screen';
         } else {

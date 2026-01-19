@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { logger } from './logger';
+import { getTheme, generateHardstatus } from '../themes';
 
 /**
  * Version file name - stores the extension version that last extracted resources
@@ -16,6 +17,7 @@ const BUNDLED_SCRIPTS = [
   // Core screen management
   'screen-auto',
   'screen-mem',
+  'screen-time',
   'screen-cleanup',
   'screen-forget',
   'screen-forget-all',
@@ -128,18 +130,28 @@ export async function extractResources(
     }
   }
 
-  // Extract templates (screenrc.template -> screenrc)
+  // Extract templates (screenrc.template -> screenrc) with theme applied
   for (const templateName of BUNDLED_TEMPLATES) {
     const sourcePath = path.join(resourcesPath, templateName);
     // Remove .template suffix for target
     const targetName = templateName.replace('.template', '');
     const targetPath = path.join(terminalsDir, targetName);
 
-    const result = await extractFile(sourcePath, targetPath, false, forceUpdate);
-    if (result === 'extracted') {
-      extracted.push(targetName);
+    // For screenrc, apply the selected theme
+    if (templateName === 'screenrc.template') {
+      const result = await extractScreenrcWithTheme(sourcePath, targetPath, forceUpdate);
+      if (result === 'extracted') {
+        extracted.push(targetName);
+      } else {
+        skipped.push(targetName);
+      }
     } else {
-      skipped.push(targetName);
+      const result = await extractFile(sourcePath, targetPath, false, forceUpdate);
+      if (result === 'extracted') {
+        extracted.push(targetName);
+      } else {
+        skipped.push(targetName);
+      }
     }
   }
 
@@ -222,6 +234,70 @@ async function extractFile(
     return 'extracted';
   } catch (error) {
     logger.error('Failed to extract file:', sourcePath, '->', targetPath, error);
+    return 'skipped';
+  }
+}
+
+/**
+ * Extracts screenrc template with the selected theme applied
+ *
+ * @param sourcePath Path to the screenrc.template file
+ * @param targetPath Path to write the themed screenrc
+ * @param forceOverwrite If true, overwrite existing files (for extension updates)
+ * @returns 'extracted' if file was written, 'skipped' if already exists and not forcing
+ */
+async function extractScreenrcWithTheme(
+  sourcePath: string,
+  targetPath: string,
+  forceOverwrite: boolean = false
+): Promise<'extracted' | 'skipped'> {
+  // Check if target already exists (preserve user modifications unless forcing)
+  if (!forceOverwrite) {
+    try {
+      await fs.access(targetPath);
+      logger.debug('Skipping existing screenrc:', targetPath);
+      return 'skipped';
+    } catch {
+      // File doesn't exist, proceed with extraction
+    }
+  }
+
+  // Check if source exists
+  try {
+    await fs.access(sourcePath);
+  } catch {
+    logger.warn('Bundled screenrc template not found:', sourcePath);
+    return 'skipped';
+  }
+
+  try {
+    // Read the template
+    const templateContent = await fs.readFile(sourcePath, 'utf-8');
+
+    // Get the selected theme from VS Code configuration
+    const config = vscode.workspace.getConfiguration('immorterm');
+    const themeName = config.get<string>('statusBarTheme', 'Purple Haze');
+    const theme = getTheme(themeName);
+
+    logger.debug('Applying theme to screenrc:', themeName);
+
+    // Generate the themed hardstatus line
+    const themedHardstatus = `hardstatus alwayslastline ${generateHardstatus(theme)}`;
+
+    // Replace the hardstatus line in the template
+    // Match the line that starts with "hardstatus alwayslastline"
+    const themedContent = templateContent.replace(
+      /^hardstatus alwayslastline .+$/m,
+      themedHardstatus
+    );
+
+    // Write the themed screenrc
+    await fs.writeFile(targetPath, themedContent, 'utf-8');
+
+    logger.debug('Extracted themed screenrc:', targetPath, 'with theme:', themeName);
+    return 'extracted';
+  } catch (error) {
+    logger.error('Failed to extract themed screenrc:', sourcePath, '->', targetPath, error);
     return 'skipped';
   }
 }

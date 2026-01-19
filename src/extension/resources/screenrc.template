@@ -2,12 +2,13 @@
 # This file is placed in {project}/.vscode/terminals/screenrc
 
 # Disable alternate screen buffer for native VS Code scrolling
-# Enable OSC title passthrough so programs (like Claude Code) can set VS Code tab title
-# hs = has status line, ts/fs = start/end title sequence (OSC 0)
-termcapinfo xterm* ti@:te@:hs:ts=\E]0;:fs=\007:ds=\E]0;\007
+# XT enables xterm title passthrough to VS Code
+termcapinfo xterm* ti@:te@:XT
 
-# Allow programs inside screen to dynamically change the window title
-defdynamictitle on
+# Disable screen's built-in dynamic title feature (we handle OSC titles via our patch)
+# Note: ImmorTerm updates %t directly from OSC 0/2 sequences,
+# bypassing this setting. This just disables the AKA escape sequence behavior.
+defdynamictitle off
 
 # Backtick command for memory monitoring (updates every 5 seconds)
 backtick 1 5 5 $SCREEN_PROJECT_DIR/.vscode/terminals/screen-mem
@@ -15,9 +16,14 @@ backtick 1 5 5 $SCREEN_PROJECT_DIR/.vscode/terminals/screen-mem
 # Backtick command to extract project name from path (runs once)
 backtick 2 0 0 basename $SCREEN_PROJECT_DIR
 
-# ImmorTerm branded status bar with purple gradient
-# Left: project name / screen title | Right: memory + ImmorTerm branding
-hardstatus alwayslastline '%{= #FFFFFF;#2D004D} %2` %{= #FFFFFF;#4B0082}/ %t %=%{= #FFFFFF;#6B238E}%1` %{= #FFFFFF;#8B008B} ImmorTerm %{-}'
+# Backtick command for last activity time (updates every 5 seconds, set by precmd hook)
+backtick 3 5 5 $SCREEN_PROJECT_DIR/.vscode/terminals/screen-time
+
+# ImmorTerm branded status bar using hardstatus
+# Left: project name / window title | Right: last activity time, memory + ImmorTerm branding
+# The time shows when terminal last had activity (tracked via log file mtime)
+# Color gradient: dark purple -> indigo -> purple -> violet -> magenta
+hardstatus alwayslastline '%{= #FFFFFF;#2D004D} %2` %{= #FFFFFF;#3D1A6D}/ %t %=%{= #E0B0FF;#5B2C8A} Last Active: %{= #FFFFFF;#6B3FA0}%3` %{= #FFFFFF;#7B52B8}%1` %{= #FFFFFF;#8B008B} ImmorTerm %{-}'
 
 # Use 256 colors with UTF-8 support
 term screen-256color

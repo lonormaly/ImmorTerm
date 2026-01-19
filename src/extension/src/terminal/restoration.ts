@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { TerminalManager } from './manager';
 import { TerminalState } from '../storage/workspace-state';
 import { createTerminalWithScreen, isScreenAvailable } from './screen-integration';
@@ -6,6 +8,9 @@ import { screenCommands } from '../utils/screen-commands';
 import { logger } from '../utils/logger';
 import { shouldCloseExistingOnRestore } from '../utils/settings';
 import { getAllTerminalsFromJson } from '../json-utils';
+import { getTheme, generateHardstatus } from '../themes';
+
+const execAsync = promisify(exec);
 
 /**
  * Configuration options for terminal restoration
@@ -264,12 +269,41 @@ async function restoreSingleTerminal(
 
   logger.info(`Restored terminal: ${windowId} "${name}" - ${reason}`);
 
+  // Apply per-terminal theme if set (with a small delay to ensure screen is ready)
+  if (terminalState.theme) {
+    setTimeout(async () => {
+      try {
+        await applyPerTerminalTheme(terminalState.theme!, screenSession);
+        logger.debug(`Applied per-terminal theme "${terminalState.theme}" to ${screenSession}`);
+      } catch (err) {
+        logger.warn(`Failed to apply per-terminal theme to ${screenSession}:`, err);
+      }
+    }, 500); // Small delay to ensure screen session is ready
+  }
+
   return {
     windowId,
     name,
     status,
     reason,
   };
+}
+
+/**
+ * Applies a per-terminal theme to a running screen session
+ *
+ * @param themeName The theme name to apply
+ * @param screenSession The screen session name
+ */
+async function applyPerTerminalTheme(themeName: string, screenSession: string): Promise<void> {
+  const theme = getTheme(themeName);
+  const hardstatusLine = generateHardstatus(theme);
+
+  const config = vscode.workspace.getConfiguration('immorterm');
+  const screenBinary = config.get<string>('screenBinary', 'immorterm');
+
+  const command = `${screenBinary} -S "${screenSession}" -X hardstatus alwayslastline ${hardstatusLine}`;
+  await execAsync(command);
 }
 
 /**

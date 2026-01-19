@@ -7,11 +7,11 @@ const execAsync = promisify(exec);
 
 /**
  * Gets the configured screen binary path from settings
- * @returns The screen binary path (default: 'screen-immorterm')
+ * @returns The screen binary path (default: 'immorterm')
  */
 function getScreenBinary(): string {
   const config = vscode.workspace.getConfiguration('immorterm');
-  return config.get<string>('screenBinary', 'screen-immorterm');
+  return config.get<string>('screenBinary', 'immorterm');
 }
 
 /**
@@ -251,6 +251,25 @@ export const screenCommands = {
       return true;
     } catch (error) {
       logger.warn(`Failed to set screen title for ${sessionName}:`, error);
+      return false;
+    }
+  },
+
+  /**
+   * Sets an environment variable in a screen session's internal environment
+   * This is used for IPC between TypeScript and shell scripts via `screen -Q echo`
+   * @param sessionName The session to update
+   * @param varName The environment variable name
+   * @param value The value to set (empty string to clear)
+   */
+  async setEnv(sessionName: string, varName: string, value: string): Promise<boolean> {
+    try {
+      const screen = getScreenBinary();
+      await execAsync(`${screen} -S "${sessionName}" -X setenv ${varName} "${value}"`);
+      logger.debug(`Set env ${varName}="${value}" on session ${sessionName}`);
+      return true;
+    } catch (error) {
+      logger.warn(`Failed to set env ${varName} for ${sessionName}:`, error);
       return false;
     }
   },

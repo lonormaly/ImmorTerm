@@ -21,7 +21,7 @@ const execAsync = promisify(exec);
  */
 function getScreenBinary(): string {
   const config = vscode.workspace.getConfiguration('immorterm');
-  return config.get<string>('screenBinary', 'screen-immorterm');
+  return config.get<string>('screenBinary', 'immorterm');
 }
 
 export interface RenameTerminalResult {
@@ -85,28 +85,14 @@ export async function renameTerminal(
   }
 
   try {
-    // 1. Update screen title with timestamp
-    const timestamp = new Date().toLocaleDateString('en-GB', {
-      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
-    }).replace(',', '-').replace(' ', '');
-    const fullTitle = `${timestamp} ${trimmedName}`;
-    await execAsync(`${getScreenBinary()} -S "${sessionName}" -X title "${fullTitle}"`);
-    logger.debug(`Set screen title to "${fullTitle}"`);
+    // 1. Update screen title (clean name only - no timestamp prefix)
+    await execAsync(`${getScreenBinary()} -S "${sessionName}" -X title "${trimmedName}"`);
+    logger.debug(`Set screen title to "${trimmedName}"`);
 
-    // 2. Write pending rename file for the shell to pick up
-    // Use session name as filename - shell can derive this from $STY
-    // The shell's precmd hook will read this and update SCREEN_WINDOW_NAME
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (workspaceFolder) {
-      const pendingDir = `${workspaceFolder}/.vscode/terminals/pending-renames`;
-      await execAsync(`mkdir -p "${pendingDir}"`);
-      const pendingFile = `${pendingDir}/${sessionName}`;
-      await execAsync(`echo "${trimmedName}" > "${pendingFile}"`);
-      logger.debug(`Wrote pending rename file: ${pendingFile}`);
-    }
-
-    // NOTE: We don't use "screen -X stuff" for OSC sequences - that injects into INPUT, not output
-    // The shell's precmd hook will pick up the pending file and update the title
+    // 2. Set pending rename via screen environment variable (cleaner than file-based IPC)
+    // The shell's precmd hook will query this via `screen -Q echo` and update IMMORTERM_BASE_NAME
+    await execAsync(`${getScreenBinary()} -S "${sessionName}" -X setenv IMMORTERM_PENDING_RENAME "${trimmedName}"`);
+    logger.debug(`Set IMMORTERM_PENDING_RENAME="${trimmedName}" on session ${sessionName}`);
 
     // 3. Update storage
     await storage.updateTerminal(windowId, { name: trimmedName });
