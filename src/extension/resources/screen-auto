@@ -2,9 +2,12 @@
 set -euo pipefail
 
 # Set terminal title IMMEDIATELY to avoid showing "bash" before the real name
-# The profile provider sets IMMORTERM_DISPLAY_NAME in the environment
+# For new terminals: profile provider sets IMMORTERM_DISPLAY_NAME in the environment
+# For restored terminals: name is passed as $2 argument
 if [[ -n "${IMMORTERM_DISPLAY_NAME:-}" ]]; then
   printf '\033]0;%s\007' "$IMMORTERM_DISPLAY_NAME"
+elif [[ -n "${2:-}" ]]; then
+  printf '\033]0;%s\007' "$2"
 fi
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
@@ -93,9 +96,22 @@ export IMMORTERM_BASE_NAME="$DISPLAY_NAME"  # Immutable base name for title cons
 
 # Print log history before attaching (so it appears in native scroll buffer)
 # Limit to last 20000 lines to prevent VS Code crashes on large logs
+# Filter out cursor positioning sequences that cause "crushed text" when terminal width differs
+# Keeps: colors (m), scrolling. Strips: cursor position (H/f), movement (A/B/C/D/E/F/G), erase (J/K), save/restore (s/u)
 LOG_LINES=20000
+filter_log() {
+  # Strip cursor positioning and screen manipulation sequences, keep colors
+  # This regex matches: ESC [ (optional numbers/semicolons) (H|f|A|B|C|D|E|F|G|J|K|s|u)
+  # Also strip: ?-prefixed private modes like ?25h (cursor), ?2004h (bracketed paste), ?1004h (focus)
+  sed -E '
+    s/\x1b\[[0-9;]*[HfABCDEFGJKsu]//g
+    s/\x1b\[\?[0-9;]*[hlsr]//g
+    s/\x1b\[<u//g
+    s/\r$//
+  '
+}
 if [[ -f "$LOGFILE" ]]; then
-  tail -n "$LOG_LINES" "$LOGFILE"
+  tail -n "$LOG_LINES" "$LOGFILE" | filter_log
 fi
 
 # ============================================================================
@@ -135,6 +151,8 @@ find_best_session() {
 }
 
 # Clean up dead/remote sessions to prevent accumulation
+# Note: screen -X quit and screen -wipe often fail to remove "Remote or dead" sessions
+# So we delete the socket files directly from ~/.screen/
 cleanup_dead_sessions() {
   local name="$1"
   local dead_sessions
@@ -142,14 +160,28 @@ cleanup_dead_sessions() {
 
   if [[ -n "$dead_sessions" ]]; then
     debug "Found dead sessions for $name, cleaning up..."
+
+    # Get the screen socket directory (usually ~/.screen or /tmp/screens/S-$USER)
+    local screen_dir="${SCREENDIR:-$HOME/.screen}"
+
     echo "$dead_sessions" | while read -r line; do
       local full_id
       full_id=$(echo "$line" | awk '{print $1}')
       if [[ -n "$full_id" ]]; then
+        # Try screen -X quit first (works for some dead sessions)
         "$SCREEN" -S "$full_id" -X quit 2>/dev/null || true
+
+        # Also delete the socket file directly (this actually works for "Remote or dead")
+        local socket_file="$screen_dir/$full_id"
+        if [[ -S "$socket_file" ]]; then
+          rm -f "$socket_file"
+          debug "Deleted socket file: $socket_file"
+        fi
+
         debug "Cleaned up dead session: $full_id"
       fi
     done
+
     # Run screen -wipe to finalize cleanup
     "$SCREEN" -wipe >/dev/null 2>&1 || true
   fi
