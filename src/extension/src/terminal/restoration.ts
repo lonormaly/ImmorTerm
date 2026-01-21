@@ -3,12 +3,13 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { TerminalManager } from './manager';
 import { TerminalState } from '../storage/workspace-state';
-import { createTerminalWithScreen, isScreenAvailable } from './screen-integration';
+import { createTerminalWithScreen, isScreenAvailable, isModifiableName } from './screen-integration';
 import { screenCommands } from '../utils/screen-commands';
 import { logger } from '../utils/logger';
 import { shouldCloseExistingOnRestore } from '../utils/settings';
 import { getAllTerminalsFromJson } from '../json-utils';
 import { getTheme, generateHardstatus } from '../themes';
+import { markAsRestored } from '../extension';
 
 const execAsync = promisify(exec);
 
@@ -239,6 +240,11 @@ async function restoreSingleTerminal(
     }
   }
 
+  // Determine if this name is modifiable (can be changed by Claude via OSC)
+  // - Modifiable (immorterm-N, ✳ prefix): Use grace period + OSC injection
+  // - Non-modifiable (custom names): VS Code's name property protects from OSC override
+  const modifiable = isModifiableName(name);
+
   // Create VS Code terminal that connects to the Screen session
   // The screen-auto script handles both creating new sessions and attaching to existing ones
   const terminal = createTerminalWithScreen({
@@ -256,6 +262,14 @@ async function restoreSingleTerminal(
 
   // Track the terminal in the manager
   manager.trackTerminal(terminal, windowId);
+
+  // For modifiable names: use grace period + OSC injection to restore correct name
+  // For non-modifiable names: VS Code's name property already protects from OSC override
+  if (modifiable) {
+    markAsRestored(windowId, name, terminal, projectName);
+  } else {
+    logger.debug(`Non-modifiable name "${name}" protected by VS Code name property, skipping grace period`);
+  }
 
   // Update lastAttached timestamp
   await manager.getStorage().updateTerminal(windowId, {

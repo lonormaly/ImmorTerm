@@ -56,6 +56,32 @@ import * as path from 'path';
 // Maps windowId -> {newName, oldVsCodeName} - we skip sync if VS Code still has oldVsCodeName
 const commandRenames = new Map<string, { newName: string; oldVsCodeName: string }>();
 
+// Track restored terminals during grace period - skip syncs until OSC reasserts the correct name
+// Maps windowId -> {jsonName, terminal, timestamp}
+const restoredTerminals = new Map<string, { jsonName: string; terminal: vscode.Terminal; timestamp: number }>();
+const RESTORE_GRACE_PERIOD_MS = 5000; // 5 seconds for VS Code to settle
+
+/**
+ * Mark a terminal as restored - skips syncs during grace period, then reasserts JSON name via OSC
+ * Called from restoration.ts after creating a restored terminal
+ */
+export function markAsRestored(windowId: string, jsonName: string, terminal: vscode.Terminal, projectName: string): void {
+  restoredTerminals.set(windowId, { jsonName, terminal, timestamp: Date.now() });
+  logger.debug(`Marked terminal as restored: ${windowId} "${jsonName}" (grace period ${RESTORE_GRACE_PERIOD_MS}ms)`);
+
+  // After grace period, clean up the tracking entry
+  // Note: We no longer send OSC here because screen -X exec .!. doesn't properly
+  // pass escape sequences through to VS Code's terminal. The title is already
+  // set correctly by screen-auto at startup.
+  setTimeout(() => {
+    const entry = restoredTerminals.get(windowId);
+    if (entry) {
+      logger.debug(`Grace period ended for ${windowId} "${entry.jsonName}"`);
+      restoredTerminals.delete(windowId);
+    }
+  }, RESTORE_GRACE_PERIOD_MS);
+}
+
 /**
  * Mark a terminal as renamed via command (called from rename command)
  * Stores both the new name we set and the VS Code name at rename time
@@ -68,10 +94,22 @@ export function markCommandRenamed(windowId: string, newName: string, oldVsCodeN
 
 /**
  * Check if we should skip syncing VS Code's name to storage
- * Returns true if: we recently renamed via command AND VS Code still shows old name
+ * Returns true if:
+ *   - Terminal is within restore grace period (VS Code assigning default names)
+ *   - We recently renamed via command AND VS Code still shows old name
  * Returns false if: VS Code name actually changed (user manual rename) - we should sync
  */
 function shouldSkipVsCodeSync(windowId: string, vsCodeName: string, storedName: string): boolean {
+  // Check if terminal is within restore grace period
+  const restored = restoredTerminals.get(windowId);
+  if (restored) {
+    const elapsed = Date.now() - restored.timestamp;
+    if (elapsed < RESTORE_GRACE_PERIOD_MS) {
+      logger.debug(`Skipping sync for restored terminal ${windowId} (grace period: ${elapsed}ms/${RESTORE_GRACE_PERIOD_MS}ms)`);
+      return true;
+    }
+  }
+
   const pending = commandRenames.get(windowId);
   if (!pending) return false;
 
@@ -1087,6 +1125,12 @@ function subscribeToTerminalEvents(
     if (windowId) {
       // Untrack from memory
       terminalManager.untrackTerminal(terminal);
+
+      // Clear any pending rename tracking for this terminal
+      commandRenames.delete(windowId);
+
+      // Clear restored terminal tracking (if within grace period)
+      restoredTerminals.delete(windowId);
 
       // Schedule cleanup with grace period (prevents accidental cleanup during VS Code reload)
       // The logsDir is captured from the outer scope (initResult)

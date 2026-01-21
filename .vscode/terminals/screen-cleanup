@@ -9,16 +9,13 @@ PROJECT="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]')"
 JSON="$PROJECT_DIR/.vscode/restore-terminals.json"
 LOGS_DIR="$PROJECT_DIR/.vscode/terminals/logs"
 
-# Use configured screen binary (immorterm by default)
-SCREEN="${IMMORTERM_SCREEN_BINARY:-immorterm}"
-
 [[ -f "$JSON" ]] || exit 0
 
 # Wait for screen to fully terminate after quit command
 sleep 0.3
 
 # Get list of active screen sessions for this project (extract the window ID part after PROJECT-)
-active_ids=$($SCREEN -ls 2>/dev/null | grep -oE "${PROJECT}-[0-9]+-[A-Za-z0-9]+" | sed "s/${PROJECT}-//" | sort -u || true)
+active_ids=$(screen -ls 2>/dev/null | grep -oE "${PROJECT}-[0-9]+-[A-Za-z0-9]+" | sed "s/${PROJECT}-//" | sort -u || true)
 
 # Get window IDs from JSON (extracted from commands array)
 # Commands look like: "exec .vscode/terminals/screen-auto 12345-abcdef12"

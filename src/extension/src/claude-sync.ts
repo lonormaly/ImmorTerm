@@ -17,10 +17,10 @@ import {
 
 let projectName: string;
 let workspacePath: string;
-let screenBinary: string = 'screen-immorterm';
+let screenBinary: string = 'immorterm';
 let logFn: (message: string) => void = console.log;
 
-export function initClaudeSync(project: string, workspace: string, logger: (message: string) => void, screen: string = 'screen-immorterm') {
+export function initClaudeSync(project: string, workspace: string, logger: (message: string) => void, screen: string = 'immorterm') {
     projectName = project;
     workspacePath = workspace;
     logFn = logger;

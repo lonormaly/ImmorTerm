@@ -251,9 +251,9 @@
         },
         "immorterm.namingPattern": {
           "type": "string",
-          "default": "${project}-${n}",
+          "default": "immorterm-${n}",
           "description": "Pattern for auto-naming terminals",
-          "markdownDescription": "Pattern for auto-naming new terminals.\n\n**Available variables**:\n- `${project}` - Workspace folder name (lowercase)\n- `${n}` - Sequential number\n\n**Examples**:\n- `${project}-${n}` → `myapp-1`, `myapp-2`\n- `Terminal ${n}` → `Terminal 1`, `Terminal 2`\n- `${project}` → `myapp` (all same name)"
+          "markdownDescription": "Pattern for auto-naming new terminals.\n\n**Available variables**:\n- `${project}` - Workspace folder name (lowercase)\n- `${n}` - Sequential number\n\n**Examples**:\n- `immorterm-${n}` → `immorterm-1`, `immorterm-2` (default)\n- `${project}-${n}` → `myapp-1`, `myapp-2`\n- `Terminal ${n}` → `Terminal 1`, `Terminal 2`\n\nNote: The status bar already shows `{project} / {tab-name}`, so the default doesn't include project name."
         },
         "immorterm.closeExistingOnRestore": {
           "type": "boolean",

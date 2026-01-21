@@ -38,6 +38,34 @@ export interface CreateTerminalOptions {
 }
 
 /**
+ * Checks if a terminal name is "modifiable" (can be changed by Claude via OSC)
+ *
+ * Modifiable names:
+ * - Names starting with ✳ (Claude session indicator)
+ * - Default pattern: immorterm-{N} (e.g., "immorterm-3")
+ *
+ * Non-modifiable names (user's custom names) should be protected from OSC override
+ */
+export function isModifiableName(name: string): boolean {
+  // Names starting with ✳ are Claude sessions - always modifiable
+  if (name.startsWith('✳') || name.startsWith('*')) {
+    return true;
+  }
+
+  // Default pattern: immorterm-{N} (e.g., "immorterm-1", "immorterm-42")
+  // Note: windowId is now the unique identifier, not the terminal name
+  // Status bar shows "{project} / {tab-name}" so no need for project in default name
+  const defaultPattern = /^immorterm-\d+$/i;
+  if (defaultPattern.test(name)) {
+    return true;
+  }
+
+  // Any other name is a custom name - non-modifiable
+  return false;
+}
+
+
+/**
  * Creates a VS Code terminal that uses screen-auto as its shell
  *
  * The terminal is configured with:
@@ -83,30 +111,44 @@ export function createTerminalWithScreen(options: CreateTerminalOptions): vscode
     shellArgs = ['-c', `exec "${screenAutoPath}" "${windowId}" "${name}"`];
   }
 
+  // Get configured screen binary
+  const screenBinary = vscode.workspace.getConfiguration('immorterm').get<string>('screenBinary', 'immorterm');
+
+  // Determine if this name is "modifiable" (can be changed by Claude via OSC)
+  // - Modifiable: names starting with ✳ or default pattern (immorterm-N)
+  // - Non-modifiable: custom user names that should be protected from OSC override
+  const modifiable = isModifiableName(name);
+
   logger.debug('Creating terminal with Screen:', {
     name,
     windowId,
     shellPath,
     shellArgs,
     isRestoration,
+    modifiable,
   });
 
-  // Get configured screen binary
-  const screenBinary = vscode.workspace.getConfiguration('immorterm').get<string>('screenBinary', 'screen-immorterm');
-
-  // Create the terminal with screen-auto as the shell command
-  const terminal = vscode.window.createTerminal({
-    name,
+  // Terminal options differ based on whether name is modifiable:
+  // - Modifiable: omit 'name' so OSC sequences can change the title (Claude can rename)
+  // - Non-modifiable: set 'name' so VS Code ignores OSC sequences (protect user's custom name)
+  const terminalOptions: vscode.TerminalOptions = {
     shellPath,
     shellArgs,
     cwd,
-    // Environment variables that screen-auto might use
     env: {
       IMMORTERM_WINDOW_ID: windowId,
-      IMMORTERM_TERMINAL_NAME: name,
+      IMMORTERM_DISPLAY_NAME: name,
       IMMORTERM_SCREEN_BINARY: screenBinary,
     },
-  });
+  };
+
+  if (!modifiable) {
+    // Non-modifiable: set name to protect from OSC override
+    terminalOptions.name = name;
+    logger.debug(`Setting VS Code name property for non-modifiable name: "${name}"`);
+  }
+
+  const terminal = vscode.window.createTerminal(terminalOptions);
 
   return terminal;
 }

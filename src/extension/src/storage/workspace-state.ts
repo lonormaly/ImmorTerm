@@ -24,6 +24,8 @@ export interface TerminalState {
     splitDirection?: 'horizontal' | 'vertical';
     splitIndex?: number;
   };
+  /** Per-terminal theme override (falls back to project default if not set) */
+  theme?: string;
 }
 
 /**

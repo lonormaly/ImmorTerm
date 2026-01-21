@@ -99,82 +99,19 @@ static void KillUnpriv(pid_t pid, int sig) {
 
 /*
  * ImmorTerm: Dump scrollback history directly to terminal on reattach.
- * This sends the scrollback buffer to VS Code's native scrollback,
- * allowing users to scroll back through history after reattaching.
- * Similar to hardcopy -h but outputs to terminal instead of file.
+ *
+ * NOTE: This approach is DISABLED because screen's scrollback buffer stores
+ * raw screen state (cursor positions, partial updates, escape sequences),
+ * not clean text lines. Outputting this directly produces garbled results.
+ *
+ * Scrollback restoration is handled by screen-auto's log file dump instead,
+ * which outputs filtered log content before attaching to screen.
+ * The 'scrollback_dump' screenrc option now controls that bash-level feature.
  */
 static void DumpScrollbackToTerminal(Window *win)
 {
-	int i, j, k;
-	uint32_t *p;
-	char buf[256];
-	ssize_t ret;
-
-	if (!win || !display || D_userfd < 0) {
-		return;
-	}
-
-	/* ImmorTerm: Check if scrollback dump is disabled via screenrc.
-	 * Use "scrollback_dump off" in screenrc to disable this feature.
-	 * Default is ON (enabled). */
-	if (!scrollback_dump) {
-		return;
-	}
-
-	/* Debug: Show scrollback stats */
-	{
-		char dbg[256];
-		snprintf(dbg, sizeof(dbg),
-			"\r\n[ImmorTerm DEBUG] histheight=%d scrollback_height=%d histidx=%d width=%d\r\n",
-			win->w_histheight, win->w_scrollback_height, win->w_histidx, win->w_width);
-		write(D_userfd, dbg, strlen(dbg));
-	}
-
-	/* Check if there's any scrollback history */
-	if (win->w_scrollback_height <= 0) {
-		write(D_userfd, "[ImmorTerm DEBUG] No scrollback history\r\n", 41);
-		return;
-	}
-
-	/* Iterate through scrollback history */
-	for (i = win->w_histheight - win->w_scrollback_height; i < win->w_histheight; i++) {
-		struct mline *ml;
-		int idx = (win->w_histidx + i) % win->w_histheight;
-		ml = &win->w_hlines[idx];
-		p = ml->image;
-
-		/* Find the last non-space character */
-		for (k = win->w_width - 1; k >= 0 && p[k] == ' '; k--)
-			;
-
-		/* Output each character, handling UTF-8 encoding */
-		for (j = 0; j <= k; j++) {
-			uint32_t c = p[j];
-			if (c < 0x80) {
-				buf[0] = (char)c;
-				ret = write(D_userfd, buf, 1);
-			} else if (c < 0x800) {
-				buf[0] = (c >> 6) | 0xc0;
-				buf[1] = (c & 0x3f) | 0x80;
-				ret = write(D_userfd, buf, 2);
-			} else if (c < 0x10000) {
-				buf[0] = (c >> 12) | 0xe0;
-				buf[1] = ((c >> 6) & 0x3f) | 0x80;
-				buf[2] = (c & 0x3f) | 0x80;
-				ret = write(D_userfd, buf, 3);
-			} else {
-				buf[0] = (c >> 18) | 0xf0;
-				buf[1] = ((c >> 12) & 0x3f) | 0x80;
-				buf[2] = ((c >> 6) & 0x3f) | 0x80;
-				buf[3] = (c & 0x3f) | 0x80;
-				ret = write(D_userfd, buf, 4);
-			}
-			(void)ret; /* Ignore write errors for scrollback dump */
-		}
-		/* End line with carriage return + newline (terminal needs \r to return to column 0) */
-		ret = write(D_userfd, "\r\n", 2);
-		(void)ret;
-	}
+	(void)win;  /* Unused - function disabled */
+	/* Scrollback restoration handled by screen-auto log dump instead */
 }
 
 #define SOCKMODE (S_IWRITE | S_IREAD | (displays ? S_IEXEC : 0) | (multi ? 1 : 0))

@@ -1,12 +1,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Set terminal title IMMEDIATELY to avoid showing "bash" before the real name
+# The profile provider sets IMMORTERM_DISPLAY_NAME in the environment
+if [[ -n "${IMMORTERM_DISPLAY_NAME:-}" ]]; then
+  printf '\033]0;%s\007' "$IMMORTERM_DISPLAY_NAME"
+fi
+
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 PROJECT="$(basename "$PWD" | tr '[:upper:]' '[:lower:]')"
 JSON=".vscode/restore-terminals.json"
 PROJECT_DIR="$PWD"
 LOGS_DIR="$PROJECT_DIR/.vscode/terminals/logs"
 PENDING_DIR="$PROJECT_DIR/.vscode/terminals/pending"
+
+# Screen binary - use configured path or fall back to 'immorterm'
+SCREEN="${IMMORTERM_SCREEN_BINARY:-immorterm}"
+
+# Check if screen binary is available - graceful fallback if not
+if ! command -v "$SCREEN" >/dev/null 2>&1; then
+  echo ""
+  echo "╔═══════════════════════════════════════════════════════════════════╗"
+  echo "║  ImmorTerm: Screen binary '$SCREEN' not found                     ║"
+  echo "╠═══════════════════════════════════════════════════════════════════╣"
+  echo "║  Terminal persistence is disabled. Install immorterm:      ║"
+  echo "║                                                                   ║"
+  echo "║    brew install lonormaly/tap/immorterm                    ║"
+  echo "║                                                                   ║"
+  echo "║  Then reload VS Code (Cmd+Shift+P → 'Reload Window')              ║"
+  echo "╚═══════════════════════════════════════════════════════════════════╝"
+  echo ""
+  # Fall back to standard shell so user can still work
+  exec "${SHELL:-/bin/zsh}"
+fi
 
 mkdir -p "$PROJECT_DIR/.vscode" "$LOGS_DIR" "$PENDING_DIR"
 [[ -f "$JSON" ]] || echo '{"artificialDelayMilliseconds":800,"terminals":[]}' > "$JSON"
@@ -59,6 +85,8 @@ LOGFILE="$LOGS_DIR/${SESSION}.log"
 
 # Export project directory BEFORE creating session so shell inherits it
 export SCREEN_PROJECT_DIR="$PROJECT_DIR"
+# Export window ID for pending rename detection
+export SCREEN_WINDOW_ID="$WINDOW"
 # Export window name for shell title initialization
 export SCREEN_WINDOW_NAME="$DISPLAY_NAME"
 
@@ -71,20 +99,20 @@ fi
 
 # Check if session exists or needs to be created
 SESSION_IS_NEW=false
-if ! screen -S "$SESSION" -Q select . >/dev/null 2>&1; then
+if ! "$SCREEN" -S "$SESSION" -Q select . >/dev/null 2>&1; then
   SESSION_IS_NEW=true
   debug "SESSION_IS_NEW=true for $SESSION (creating new screen)"
   # Create new detached session with large scrollback buffer (50k lines)
   # Shell will inherit SCREEN_PROJECT_DIR from this parent process
   # NOTE: Do NOT use -L -Logfile here as it may truncate the existing log file!
-  screen -dmS "$SESSION" -c "$PROJECT_DIR/.vscode/terminals/screenrc" -h 50000
+  "$SCREEN" -dmS "$SESSION" -c "$PROJECT_DIR/.vscode/terminals/screenrc" -h 50000
 
   # Enable logging AFTER session creation (appends, doesn't truncate)
-  screen -S "$SESSION" -X logfile "$LOGFILE"
-  screen -S "$SESSION" -X log on
+  "$SCREEN" -S "$SESSION" -X logfile "$LOGFILE"
+  "$SCREEN" -S "$SESSION" -X log on
 
   # Set the screen window title immediately (before shell can override it)
-  screen -S "$SESSION" -X title "$DISPLAY_NAME"
+  "$SCREEN" -S "$SESSION" -X title "$DISPLAY_NAME"
 
   # Note: shell-init.zsh is sourced automatically by shell-wrapper.zsh (set in screenrc)
 
@@ -99,7 +127,7 @@ if ! screen -S "$SESSION" -Q select . >/dev/null 2>&1; then
     if [[ -n "$CLAUDE_SESSION_ID" ]]; then
       debug "AUTO-RESUME: sending 'claude --resume $CLAUDE_SESSION_ID' to $SESSION"
       # Auto-resume Claude session in this screen
-      screen -S "$SESSION" -X stuff "claude --resume $CLAUDE_SESSION_ID\n"
+      "$SCREEN" -S "$SESSION" -X stuff "claude --resume $CLAUDE_SESSION_ID\n"
     else
       debug "No claudeSessionId found for $WINDOW, skipping auto-resume"
     fi
@@ -116,4 +144,4 @@ fi
 printf '\033]0;%s\007' "$DISPLAY_NAME"
 
 # Attach to the session
-exec screen -xRR -S "$SESSION"
+exec "$SCREEN" -xRR -S "$SESSION"

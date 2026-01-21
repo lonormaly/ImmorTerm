@@ -1,4 +1,4 @@
 {
-  "terminal.integrated.defaultProfile.osx": "immorterm.screen",
-  "terminal.integrated.defaultProfile.linux": "immorterm.screen"
+  "terminal.integrated.defaultProfile.osx": "ImmorTerm",
+  "terminal.integrated.defaultProfile.linux": "ImmorTerm"
 }

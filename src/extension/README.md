@@ -119,7 +119,7 @@ Access settings via File > Preferences > Settings > Extensions > ImmorTerm
 | `immorterm.closeGracePeriod` | 60000 | Wait (ms) before cleanup on close |
 | `immorterm.autoCleanupStale` | true | Auto-cleanup orphaned sessions |
 | `immorterm.statusBarEnabled` | true | Show status bar item |
-| `immorterm.namingPattern` | `${project}-${n}` | Pattern for terminal names |
+| `immorterm.namingPattern` | `immorterm-${n}` | Pattern for terminal names |
 
 ### Debugging
 

@@ -7,9 +7,6 @@ if [[ -n "$SCREEN_PROJECT_DIR" && -f "$SCREEN_PROJECT_DIR/.vscode/terminals/shel
     source "$SCREEN_PROJECT_DIR/.vscode/terminals/shell-init.zsh"
 fi
 
-# Enable Claude Code LSP support
-export ENABLE_LSP_TOOL=1
-
 # Reset ZDOTDIR and source the user's real .zshrc
 export ZDOTDIR="$HOME"
 if [[ -f "$HOME/.zshrc" ]]; then

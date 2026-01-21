@@ -9,7 +9,7 @@ import { logger } from '../utils/logger';
  */
 function getScreenBinary(): string {
   const config = vscode.workspace.getConfiguration('immorterm');
-  return config.get<string>('screenBinary', 'screen-immorterm');
+  return config.get<string>('screenBinary', 'immorterm');
 }
 
 /**
@@ -60,24 +60,30 @@ export function isRawWindowIdFormat(name: string): boolean {
 
 /**
  * Gets the naming pattern from settings
- * Default: "${project}-${n}"
+ * Default: "immorterm-${n}"
+ *
+ * Note: windowId is now the unique identifier, not the terminal name.
+ * Status bar shows "{project} / {tab-name}" so no need for project in default name.
  *
  * @returns The naming pattern string
  */
 function getNamingPattern(): string {
   const config = vscode.workspace.getConfiguration('immorterm');
-  return config.get<string>('namingPattern', '${project}-${n}');
+  return config.get<string>('namingPattern', 'immorterm-${n}');
 }
 
 /**
- * Generates the next sequential terminal name for a project
+ * Generates the next sequential terminal name
  *
  * Scans existing terminal names to find the highest number,
- * then returns project-N+1
+ * then returns immorterm-N+1
  *
- * @param projectName The project name (lowercase)
+ * Note: windowId is now the unique identifier, not the terminal name.
+ * Status bar shows "{project} / {tab-name}" so no need for project in default name.
+ *
+ * @param projectName The project name (lowercase) - kept for backward compatibility
  * @param storage The workspace storage to check existing names
- * @returns Next available name (e.g., "myproject-3")
+ * @returns Next available name (e.g., "immorterm-3")
  */
 export function generateNextName(
   projectName: string,
@@ -86,8 +92,8 @@ export function generateNextName(
   const terminals = storage.getAllTerminals();
   let maxN = 0;
 
-  // Pattern matches "projectname-N" format
-  const pattern = new RegExp(`^${projectName}-(\\d+)$`, 'i');
+  // Pattern matches "immorterm-N" format (unified across all projects)
+  const pattern = /^immorterm-(\d+)$/i;
 
   for (const terminal of terminals) {
     const match = terminal.name.match(pattern);
@@ -112,10 +118,10 @@ export function generateNextName(
 
   const nextN = maxN + 1;
 
-  // Apply naming pattern
+  // Apply naming pattern (default: "immorterm-${n}")
   const namingPattern = getNamingPattern();
   return namingPattern
-    .replace('${project}', projectName)
+    .replace('${project}', projectName) // Kept for custom patterns that still want project name
     .replace('${n}', String(nextN));
 }
 
