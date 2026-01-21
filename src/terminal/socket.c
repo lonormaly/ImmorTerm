@@ -121,8 +121,18 @@ static void DumpScrollbackToTerminal(Window *win)
 		return;
 	}
 
+	/* Debug: Show scrollback stats */
+	{
+		char dbg[256];
+		snprintf(dbg, sizeof(dbg),
+			"\r\n[ImmorTerm DEBUG] histheight=%d scrollback_height=%d histidx=%d width=%d\r\n",
+			win->w_histheight, win->w_scrollback_height, win->w_histidx, win->w_width);
+		write(D_userfd, dbg, strlen(dbg));
+	}
+
 	/* Check if there's any scrollback history */
 	if (win->w_scrollback_height <= 0) {
+		write(D_userfd, "[ImmorTerm DEBUG] No scrollback history\r\n", 41);
 		return;
 	}
 
@@ -161,8 +171,8 @@ static void DumpScrollbackToTerminal(Window *win)
 			}
 			(void)ret; /* Ignore write errors for scrollback dump */
 		}
-		/* End line with newline */
-		ret = write(D_userfd, "\n", 1);
+		/* End line with carriage return + newline (terminal needs \r to return to column 0) */
+		ret = write(D_userfd, "\r\n", 2);
 		(void)ret;
 	}
 }
