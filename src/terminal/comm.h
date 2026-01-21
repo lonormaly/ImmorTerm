@@ -248,5 +248,6 @@ struct action
 #define RC_ZMODEM 184
 #define RC_ZOMBIE 185
 #define RC_ZOMBIE_TIMEOUT 186
+#define RC_SCROLLBACK_DUMP 187  /* ImmorTerm: dump scrollback on reattach */
 
-#define RC_LAST 186
+#define RC_LAST 187

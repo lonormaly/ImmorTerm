@@ -227,5 +227,6 @@ struct comm comms[RC_LAST + 1] =
   { "xon",		NEED_LAYER|ARGS_0,		{NULL} },
   { "zmodem",		ARGS_012,			{NULL} },
   { "zombie",		ARGS_012,			{NULL} },
-  { "zombie_timeout",	ARGS_1,				{NULL} }
+  { "zombie_timeout",	ARGS_1,				{NULL} },
+  { "scrollback_dump",	ARGS_1,				{NULL} }  /* ImmorTerm: dump scrollback on reattach */
 };

@@ -3435,6 +3435,12 @@ static void DoCommandAutodetach(struct action *act)
 	(void)ParseOnOff(act, &auto_detach);
 }
 
+/* ImmorTerm: Configure scrollback dump on reattach */
+static void DoCommandScrollbackDump(struct action *act)
+{
+	(void)ParseOnOff(act, &scrollback_dump);
+}
+
 static void DoCommandStartup_message(struct action *act)
 {
 	(void)ParseOnOff(act, &default_startup);
@@ -5065,6 +5071,9 @@ void DoAction(struct action *act)
 		break;
 	case RC_ZOMBIE_TIMEOUT:
 		DoCommandZombie_timeout(act);
+		break;
+	case RC_SCROLLBACK_DUMP:
+		DoCommandScrollbackDump(act);
 		break;
 	case RC_SORT:
 		DoCommandSort(act);

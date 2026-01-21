@@ -17,8 +17,15 @@ PROJECT_DIR="$PWD"
 LOGS_DIR="$PROJECT_DIR/.vscode/terminals/logs"
 PENDING_DIR="$PROJECT_DIR/.vscode/terminals/pending"
 
-# Screen binary - use configured path or fall back to 'immorterm'
-SCREEN="${IMMORTERM_SCREEN_BINARY:-immorterm}"
+# Screen binary - use configured path, local dev version, or fall back to 'immorterm'
+# Priority: env var > local dev build > homebrew installed
+if [[ -n "${IMMORTERM_SCREEN_BINARY:-}" ]]; then
+  SCREEN="$IMMORTERM_SCREEN_BINARY"
+elif [[ -x "$HOME/Development/immorterm/bin/immorterm" ]]; then
+  SCREEN="$HOME/Development/immorterm/bin/immorterm"
+else
+  SCREEN="immorterm"
+fi
 
 # Check if screen binary is available - graceful fallback if not
 if ! command -v "$SCREEN" >/dev/null 2>&1; then

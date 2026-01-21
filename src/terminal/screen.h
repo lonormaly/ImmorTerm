@@ -267,6 +267,7 @@ extern char **NewEnv;
 extern bool adaptflag;
 extern bool auto_detach;
 extern bool cjkwidth;
+extern bool scrollback_dump;  /* ImmorTerm: dump scrollback on reattach */
 extern bool default_startup;
 extern bool do_auth;
 extern bool hastruecolor;

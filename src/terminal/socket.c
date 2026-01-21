@@ -110,12 +110,21 @@ static void DumpScrollbackToTerminal(Window *win)
 	char buf[256];
 	ssize_t ret;
 
-	if (!win || !display || D_userfd < 0)
+	if (!win || !display || D_userfd < 0) {
 		return;
+	}
+
+	/* ImmorTerm: Check if scrollback dump is disabled via screenrc.
+	 * Use "scrollback_dump off" in screenrc to disable this feature.
+	 * Default is ON (enabled). */
+	if (!scrollback_dump) {
+		return;
+	}
 
 	/* Check if there's any scrollback history */
-	if (win->w_scrollback_height <= 0)
+	if (win->w_scrollback_height <= 0) {
 		return;
+	}
 
 	/* Iterate through scrollback history */
 	for (i = win->w_histheight - win->w_scrollback_height; i < win->w_histheight; i++) {
