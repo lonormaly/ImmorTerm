@@ -107,14 +107,23 @@ export IMMORTERM_BASE_NAME="$DISPLAY_NAME"  # Immutable base name for title cons
 # Keeps: colors (m), scrolling. Strips: cursor position (H/f), movement (A/B/C/D/E/F/G), erase (J/K), save/restore (s/u)
 LOG_LINES=20000
 filter_log() {
-  # Strip cursor positioning and screen manipulation sequences, keep colors
-  # This regex matches: ESC [ (optional numbers/semicolons) (H|f|A|B|C|D|E|F|G|J|K|s|u)
-  # Also strip: ?-prefixed private modes like ?25h (cursor), ?2004h (bracketed paste), ?1004h (focus)
+  # Strip terminal manipulation sequences, KEEP colors (sequences ending in 'm')
+  #
+  # KEEP: ESC [ ... m  (colors and text attributes)
+  # STRIP everything else that causes layout issues:
+  #   - ESC [ ... (cursor, erase, scroll, modes) - all letters except 'm'
+  #   - ESC [ ? ... (private modes like cursor visibility, bracketed paste)
+  #   - ESC > and ESC = (keypad modes)
+  #   - ESC ( and ESC ) (character set selection)
+  #   - Carriage returns at end of lines
   sed -E '
-    s/\x1b\[[0-9;]*[HfABCDEFGJKsu]//g
+    s/\x1b\[[0-9;]*[HfABCDEFGJKLMPXsudrtlnqhg@]//g
     s/\x1b\[\?[0-9;]*[hlsr]//g
     s/\x1b\[<u//g
+    s/\x1b[>=()]//g
+    s/\x1b\[[0-9;]*[cZ]//g
     s/\r$//
+    s/\r//g
   '
 }
 if [[ -f "$LOGFILE" ]]; then

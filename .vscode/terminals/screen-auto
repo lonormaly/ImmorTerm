@@ -2,9 +2,12 @@
 set -euo pipefail
 
 # Set terminal title IMMEDIATELY to avoid showing "bash" before the real name
-# The profile provider sets IMMORTERM_DISPLAY_NAME in the environment
+# For new terminals: profile provider sets IMMORTERM_DISPLAY_NAME in the environment
+# For restored terminals: name is passed as $2 argument
 if [[ -n "${IMMORTERM_DISPLAY_NAME:-}" ]]; then
   printf '\033]0;%s\007' "$IMMORTERM_DISPLAY_NAME"
+elif [[ -n "${2:-}" ]]; then
+  printf '\033]0;%s\007' "$2"
 fi
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
@@ -14,8 +17,15 @@ PROJECT_DIR="$PWD"
 LOGS_DIR="$PROJECT_DIR/.vscode/terminals/logs"
 PENDING_DIR="$PROJECT_DIR/.vscode/terminals/pending"
 
-# Screen binary - use configured path or fall back to 'immorterm'
-SCREEN="${IMMORTERM_SCREEN_BINARY:-immorterm}"
+# Screen binary - use configured path, local dev version, or fall back to 'immorterm'
+# Priority: env var > local dev build > homebrew installed
+if [[ -n "${IMMORTERM_SCREEN_BINARY:-}" ]]; then
+  SCREEN="$IMMORTERM_SCREEN_BINARY"
+elif [[ -x "$HOME/Development/immorterm/bin/immorterm" ]]; then
+  SCREEN="$HOME/Development/immorterm/bin/immorterm"
+else
+  SCREEN="immorterm"
+fi
 
 # Check if screen binary is available - graceful fallback if not
 if ! command -v "$SCREEN" >/dev/null 2>&1; then
@@ -83,36 +93,151 @@ fi
 
 LOGFILE="$LOGS_DIR/${SESSION}.log"
 
-# Export project directory BEFORE creating session so shell inherits it
+# Export environment BEFORE creating session so screen inherits it
+# These variables are available to backtick commands and the interactive shell
 export SCREEN_PROJECT_DIR="$PROJECT_DIR"
-# Export window ID for pending rename detection
+export IMMORTERM_SCREEN_BINARY="$SCREEN"  # Needed by screen-mem to detect parent process
 export SCREEN_WINDOW_ID="$WINDOW"
-# Export window name for shell title initialization
 export SCREEN_WINDOW_NAME="$DISPLAY_NAME"
+export IMMORTERM_BASE_NAME="$DISPLAY_NAME"  # Immutable base name for title construction
 
 # Print log history before attaching (so it appears in native scroll buffer)
 # Limit to last 20000 lines to prevent VS Code crashes on large logs
+# Filter out cursor positioning sequences that cause "crushed text" when terminal width differs
+# Keeps: colors (m), scrolling. Strips: cursor position (H/f), movement (A/B/C/D/E/F/G), erase (J/K), save/restore (s/u)
 LOG_LINES=20000
+filter_log() {
+  # Strip terminal manipulation sequences, KEEP colors (sequences ending in 'm')
+  #
+  # KEEP: ESC [ ... m  (colors and text attributes)
+  # STRIP everything else that causes layout issues:
+  #   - ESC [ ... (cursor, erase, scroll, modes) - all letters except 'm'
+  #   - ESC [ ? ... (private modes like cursor visibility, bracketed paste)
+  #   - ESC > and ESC = (keypad modes)
+  #   - ESC ( and ESC ) (character set selection)
+  #   - Carriage returns at end of lines
+  sed -E '
+    s/\x1b\[[0-9;]*[HfABCDEFGJKLMPXsudrtlnqhg@]//g
+    s/\x1b\[\?[0-9;]*[hlsr]//g
+    s/\x1b\[<u//g
+    s/\x1b[>=()]//g
+    s/\x1b\[[0-9;]*[cZ]//g
+    s/\r$//
+    s/\r//g
+  '
+}
 if [[ -f "$LOGFILE" ]]; then
-  tail -n "$LOG_LINES" "$LOGFILE"
+  tail -n "$LOG_LINES" "$LOGFILE" | filter_log
 fi
 
-# Check if session exists or needs to be created
+# ============================================================================
+# SESSION MANAGEMENT
+# ============================================================================
+# Find existing sessions matching our session name.
+# Returns the full "PID.name" identifier for unambiguous operations.
+# Prefers "Detached" sessions over "Dead/Remote" ones.
+# If multiple healthy sessions exist, returns the one with highest PID (most recent).
+find_best_session() {
+  local name="$1"
+  local sessions
+  sessions=$("$SCREEN" -ls 2>/dev/null | grep -E "[0-9]+\.$name[[:space:]]" || true)
+
+  if [[ -z "$sessions" ]]; then
+    return 1  # No sessions found
+  fi
+
+  # First, try to find a "Detached" session (healthy, ready to attach)
+  local detached
+  detached=$(echo "$sessions" | grep "Detached" | sort -t. -k1 -n -r | head -1 | awk '{print $1}')
+  if [[ -n "$detached" ]]; then
+    echo "$detached"
+    return 0
+  fi
+
+  # Next, try "Attached" sessions (might be attached to dead display, -D will fix)
+  local attached
+  attached=$(echo "$sessions" | grep "Attached" | sort -t. -k1 -n -r | head -1 | awk '{print $1}')
+  if [[ -n "$attached" ]]; then
+    echo "$attached"
+    return 0
+  fi
+
+  # No healthy sessions - all are "Dead" or "Remote"
+  return 1
+}
+
+# Clean up dead/remote sessions to prevent accumulation
+# Note: screen -X quit and screen -wipe often fail to remove "Remote or dead" sessions
+# So we delete the socket files directly from ~/.screen/
+cleanup_dead_sessions() {
+  local name="$1"
+  local dead_sessions
+  dead_sessions=$("$SCREEN" -ls 2>/dev/null | grep -E "[0-9]+\.$name[[:space:]]" | grep -E "Dead|Remote" || true)
+
+  if [[ -n "$dead_sessions" ]]; then
+    debug "Found dead sessions for $name, cleaning up..."
+
+    # Get the screen socket directory (usually ~/.screen or /tmp/screens/S-$USER)
+    local screen_dir="${SCREENDIR:-$HOME/.screen}"
+
+    echo "$dead_sessions" | while read -r line; do
+      local full_id
+      full_id=$(echo "$line" | awk '{print $1}')
+      if [[ -n "$full_id" ]]; then
+        # Try screen -X quit first (works for some dead sessions)
+        "$SCREEN" -S "$full_id" -X quit 2>/dev/null || true
+
+        # Also delete the socket file directly (this actually works for "Remote or dead")
+        local socket_file="$screen_dir/$full_id"
+        if [[ -S "$socket_file" ]]; then
+          rm -f "$socket_file"
+          debug "Deleted socket file: $socket_file"
+        fi
+
+        debug "Cleaned up dead session: $full_id"
+      fi
+    done
+
+    # Run screen -wipe to finalize cleanup
+    "$SCREEN" -wipe >/dev/null 2>&1 || true
+  fi
+}
+
+# Main session logic
 SESSION_IS_NEW=false
-if ! "$SCREEN" -S "$SESSION" -Q select . >/dev/null 2>&1; then
+FULL_SESSION_ID=""
+
+# First, clean up any dead sessions with our name
+cleanup_dead_sessions "$SESSION"
+
+# Now find the best healthy session to attach to
+FULL_SESSION_ID=$(find_best_session "$SESSION" || true)
+
+if [[ -z "$FULL_SESSION_ID" ]]; then
+  # No healthy session found - create a new one
   SESSION_IS_NEW=true
   debug "SESSION_IS_NEW=true for $SESSION (creating new screen)"
+
   # Create new detached session with large scrollback buffer (50k lines)
   # Shell will inherit SCREEN_PROJECT_DIR from this parent process
   # NOTE: Do NOT use -L -Logfile here as it may truncate the existing log file!
   "$SCREEN" -dmS "$SESSION" -c "$PROJECT_DIR/.vscode/terminals/screenrc" -h 50000
 
+  # Get the full session ID of the newly created session
+  sleep 0.1  # Brief pause to ensure session is registered
+  FULL_SESSION_ID=$(find_best_session "$SESSION" || echo "$SESSION")
+  debug "Created new session: $FULL_SESSION_ID"
+
   # Enable logging AFTER session creation (appends, doesn't truncate)
-  "$SCREEN" -S "$SESSION" -X logfile "$LOGFILE"
-  "$SCREEN" -S "$SESSION" -X log on
+  "$SCREEN" -S "$FULL_SESSION_ID" -X logfile "$LOGFILE"
+  "$SCREEN" -S "$FULL_SESSION_ID" -X log on
 
   # Set the screen window title immediately (before shell can override it)
-  "$SCREEN" -S "$SESSION" -X title "$DISPLAY_NAME"
+  "$SCREEN" -S "$FULL_SESSION_ID" -X title "$DISPLAY_NAME"
+
+  # Set environment variables for backtick commands (screen's internal env, not shell env)
+  # This is required because backticks query screen's internal environment table, NOT shell exports
+  "$SCREEN" -S "$FULL_SESSION_ID" -X setenv IMMORTERM_SCREEN_BINARY "$SCREEN"
 
   # Note: shell-init.zsh is sourced automatically by shell-wrapper.zsh (set in screenrc)
 
@@ -125,17 +250,20 @@ if ! "$SCREEN" -S "$SESSION" -Q select . >/dev/null 2>&1; then
     debug "Checking auto-resume: window=$WINDOW, claudeSessionId=${CLAUDE_SESSION_ID:-<none>}"
 
     if [[ -n "$CLAUDE_SESSION_ID" ]]; then
-      debug "AUTO-RESUME: sending 'claude --resume $CLAUDE_SESSION_ID' to $SESSION"
+      debug "AUTO-RESUME: sending 'claude --resume $CLAUDE_SESSION_ID' to $FULL_SESSION_ID"
       # Auto-resume Claude session in this screen
-      "$SCREEN" -S "$SESSION" -X stuff "claude --resume $CLAUDE_SESSION_ID\n"
+      "$SCREEN" -S "$FULL_SESSION_ID" -X stuff "claude --resume $CLAUDE_SESSION_ID\n"
     else
       debug "No claudeSessionId found for $WINDOW, skipping auto-resume"
     fi
   fi
 else
-  debug "SESSION_IS_NEW=false for $SESSION (attaching to existing)"
+  debug "SESSION_IS_NEW=false for $SESSION (attaching to existing: $FULL_SESSION_ID)"
   # Note: shell-init.zsh is sourced automatically by shell-wrapper.zsh (set in screenrc)
   # No need to inject commands - the wrapper handles it for all sessions
+
+  # Ensure environment variable is set for backticks (may have been lost on screen restart)
+  "$SCREEN" -S "$FULL_SESSION_ID" -X setenv IMMORTERM_SCREEN_BINARY "$SCREEN"
 fi
 
 # Set VS Code terminal tab name BEFORE exec screen
@@ -143,5 +271,8 @@ fi
 # otherwise VS Code shows "screen-5.0.1" (the process name)
 printf '\033]0;%s\007' "$DISPLAY_NAME"
 
-# Attach to the session
-exec "$SCREEN" -xRR -S "$SESSION"
+# Attach to the session using full session ID to avoid ambiguity
+# Use -D -RR to forcefully detach any stale attachments (e.g., dead displays from crashed VS Code)
+# before reattaching. This prevents "attached to dead display" issues.
+debug "Attaching to: $FULL_SESSION_ID"
+exec "$SCREEN" -D -RR -S "$FULL_SESSION_ID"
