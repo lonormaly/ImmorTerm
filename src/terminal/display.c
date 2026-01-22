@@ -291,6 +291,8 @@ void FreeDisplay(void)
 			break;
 	if (D_status_lastmsg)
 		free(D_status_lastmsg);
+	if (D_hstatus_lastmsg)
+		free(D_hstatus_lastmsg);
 	if (D_obuf)
 		free(D_obuf);
 	*dp = display->d_next;
@@ -1686,18 +1688,22 @@ void ShowHStatus(char *str)
 		AddCStr(D_FS);
 		D_hstatus = true;
 	} else if (D_has_hstatus == HSTATUS_LASTLINE) {
-		/* DEBUG: Log hardstatus draw */
-		{
-			FILE *dbg = fopen("/tmp/immorterm-scroll.log", "a");
-			if (dbg) {
-				fprintf(dbg, "[HSTATUS] Drawing at y=%d, D_top=%d, D_bot=%d, D_height=%d\n",
-					D_height - 1, D_top, D_bot, D_height);
-				fclose(dbg);
-			}
+		/*
+		 * ImmorTerm: Skip redraw if hardstatus content hasn't changed.
+		 * This prevents duplication in VS Code scrollback when using ti@:te@
+		 * because each GotoPos + draw outputs to the scrollback buffer.
+		 */
+		str = str ? str : "";
+		if (D_hstatus_lastmsg && strcmp(D_hstatus_lastmsg, str) == 0) {
+			/* Content unchanged, skip redraw */
+			return;
 		}
+		/* Update cache */
+		free(D_hstatus_lastmsg);
+		D_hstatus_lastmsg = SaveStr(str);
+
 		ox = D_x;
 		oy = D_y;
-		str = str ? str : "";
 		l = strlen(str);
 		if (l > D_width)
 			l = D_width;
@@ -1711,12 +1717,18 @@ void ShowHStatus(char *str)
 			ClearArea(l, D_height - 1, l, D_width - 1, D_width - 1, D_height - 1, 0, 0);
 		if (ox != -1 && oy != -1)
 			GotoPos(ox, oy);
-		D_hstatus = (str != NULL);
+		D_hstatus = (str != NULL && *str != '\0');
 		SetRendition(&mchar_null);
 	} else if (D_has_hstatus == HSTATUS_FIRSTLINE) {
+		/* ImmorTerm: Same deduplication as HSTATUS_LASTLINE */
+		str = str ? str : "";
+		if (D_hstatus_lastmsg && strcmp(D_hstatus_lastmsg, str) == 0)
+			return;
+		free(D_hstatus_lastmsg);
+		D_hstatus_lastmsg = SaveStr(str);
+
 		ox = D_x;
 		oy = D_y;
-		str = str ? str : "";
 		l = strlen(str);
 		if (l > D_width)
 			l = D_width;
@@ -1730,7 +1742,7 @@ void ShowHStatus(char *str)
 			ClearArea(l, 0, l, D_width - 1, D_width - 1, 0, 0, 0);
 		if (ox != -1 && oy != -1)
 			GotoPos(ox, oy);
-		D_hstatus = (str != NULL);
+		D_hstatus = (str != NULL && *str != '\0');
 		SetRendition(&mchar_null);
 	} else if (str && *str && D_has_hstatus == HSTATUS_MESSAGE) {
 		Msg(0, "%s", str);
