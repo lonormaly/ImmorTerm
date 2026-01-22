@@ -32,7 +32,6 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/time.h>
 #include <signal.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -292,8 +291,6 @@ void FreeDisplay(void)
 			break;
 	if (D_status_lastmsg)
 		free(D_status_lastmsg);
-	if (D_hstatus_lastmsg)
-		free(D_hstatus_lastmsg);
 	if (D_obuf)
 		free(D_obuf);
 	*dp = display->d_next;
@@ -1689,31 +1686,18 @@ void ShowHStatus(char *str)
 		AddCStr(D_FS);
 		D_hstatus = true;
 	} else if (D_has_hstatus == HSTATUS_LASTLINE) {
-		/*
-		 * ImmorTerm: Throttle hardstatus redraws to prevent duplication.
-		 * With ti@:te@ disabled, each GotoPos + draw outputs to VS Code's
-		 * scrollback. We skip if content is unchanged AND we drew recently
-		 * (within 50ms). This allows necessary redraws after screen clears
-		 * while preventing rapid duplicate output.
-		 */
-		str = str ? str : "";
-		if (D_hstatus_lastmsg && strcmp(D_hstatus_lastmsg, str) == 0) {
-			/* Content unchanged - check if we drew recently */
-			struct timeval now, diff;
-			gettimeofday(&now, NULL);
-			timersub(&now, &D_hstatus_time, &diff);
-			/* Skip if we drew within last 50ms */
-			if (diff.tv_sec == 0 && diff.tv_usec < 50000) {
-				return;
+		/* DEBUG: Log hardstatus draw */
+		{
+			FILE *dbg = fopen("/tmp/immorterm-scroll.log", "a");
+			if (dbg) {
+				fprintf(dbg, "[HSTATUS] Drawing at y=%d, D_top=%d, D_bot=%d, D_height=%d\n",
+					D_height - 1, D_top, D_bot, D_height);
+				fclose(dbg);
 			}
 		}
-		/* Update cache and timestamp */
-		free(D_hstatus_lastmsg);
-		D_hstatus_lastmsg = SaveStr(str);
-		gettimeofday(&D_hstatus_time, NULL);
-
 		ox = D_x;
 		oy = D_y;
+		str = str ? str : "";
 		l = strlen(str);
 		if (l > D_width)
 			l = D_width;
@@ -1727,24 +1711,12 @@ void ShowHStatus(char *str)
 			ClearArea(l, D_height - 1, l, D_width - 1, D_width - 1, D_height - 1, 0, 0);
 		if (ox != -1 && oy != -1)
 			GotoPos(ox, oy);
-		D_hstatus = (str != NULL && *str != '\0');
+		D_hstatus = (str != NULL);
 		SetRendition(&mchar_null);
 	} else if (D_has_hstatus == HSTATUS_FIRSTLINE) {
-		/* ImmorTerm: Same throttling as HSTATUS_LASTLINE */
-		str = str ? str : "";
-		if (D_hstatus_lastmsg && strcmp(D_hstatus_lastmsg, str) == 0) {
-			struct timeval now, diff;
-			gettimeofday(&now, NULL);
-			timersub(&now, &D_hstatus_time, &diff);
-			if (diff.tv_sec == 0 && diff.tv_usec < 50000)
-				return;
-		}
-		free(D_hstatus_lastmsg);
-		D_hstatus_lastmsg = SaveStr(str);
-		gettimeofday(&D_hstatus_time, NULL);
-
 		ox = D_x;
 		oy = D_y;
+		str = str ? str : "";
 		l = strlen(str);
 		if (l > D_width)
 			l = D_width;
@@ -1758,7 +1730,7 @@ void ShowHStatus(char *str)
 			ClearArea(l, 0, l, D_width - 1, D_width - 1, 0, 0, 0);
 		if (ox != -1 && oy != -1)
 			GotoPos(ox, oy);
-		D_hstatus = (str != NULL && *str != '\0');
+		D_hstatus = (str != NULL);
 		SetRendition(&mchar_null);
 	} else if (str && *str && D_has_hstatus == HSTATUS_MESSAGE) {
 		Msg(0, "%s", str);
