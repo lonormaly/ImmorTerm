@@ -117,6 +117,7 @@ struct Display {
 	HardStatus	d_has_hstatus;		/* display has hardstatus line */
 	bool d_hstatus;		/* hardstatus used */
 	char *d_hstatus_lastmsg;	/* ImmorTerm: last drawn hstatus (for dedup) */
+	struct timeval d_hstatus_time;	/* ImmorTerm: time of last hstatus draw */
 	int	d_lp_missing;		/* last character on bot line missing */
 	int	d_mouse;			/* mouse mode */
 	int	d_extmouse;		/* extended mouse mode */
@@ -232,6 +233,7 @@ struct Display {
 #define D_has_hstatus	DISPLAY(d_has_hstatus)
 #define D_hstatus	DISPLAY(d_hstatus)
 #define D_hstatus_lastmsg	DISPLAY(d_hstatus_lastmsg)
+#define D_hstatus_time	DISPLAY(d_hstatus_time)
 #define D_lp_missing	DISPLAY(d_lp_missing)
 #define D_mouse		DISPLAY(d_mouse)
 #define D_mouse_parse	DISPLAY(d_mouse_parse)

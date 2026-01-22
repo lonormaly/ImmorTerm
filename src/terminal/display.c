@@ -32,6 +32,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <signal.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -1689,18 +1690,27 @@ void ShowHStatus(char *str)
 		D_hstatus = true;
 	} else if (D_has_hstatus == HSTATUS_LASTLINE) {
 		/*
-		 * ImmorTerm: Skip redraw if hardstatus content hasn't changed.
-		 * This prevents duplication in VS Code scrollback when using ti@:te@
-		 * because each GotoPos + draw outputs to the scrollback buffer.
+		 * ImmorTerm: Throttle hardstatus redraws to prevent duplication.
+		 * With ti@:te@ disabled, each GotoPos + draw outputs to VS Code's
+		 * scrollback. We skip if content is unchanged AND we drew recently
+		 * (within 50ms). This allows necessary redraws after screen clears
+		 * while preventing rapid duplicate output.
 		 */
 		str = str ? str : "";
 		if (D_hstatus_lastmsg && strcmp(D_hstatus_lastmsg, str) == 0) {
-			/* Content unchanged, skip redraw */
-			return;
+			/* Content unchanged - check if we drew recently */
+			struct timeval now, diff;
+			gettimeofday(&now, NULL);
+			timersub(&now, &D_hstatus_time, &diff);
+			/* Skip if we drew within last 50ms */
+			if (diff.tv_sec == 0 && diff.tv_usec < 50000) {
+				return;
+			}
 		}
-		/* Update cache */
+		/* Update cache and timestamp */
 		free(D_hstatus_lastmsg);
 		D_hstatus_lastmsg = SaveStr(str);
+		gettimeofday(&D_hstatus_time, NULL);
 
 		ox = D_x;
 		oy = D_y;
@@ -1720,12 +1730,18 @@ void ShowHStatus(char *str)
 		D_hstatus = (str != NULL && *str != '\0');
 		SetRendition(&mchar_null);
 	} else if (D_has_hstatus == HSTATUS_FIRSTLINE) {
-		/* ImmorTerm: Same deduplication as HSTATUS_LASTLINE */
+		/* ImmorTerm: Same throttling as HSTATUS_LASTLINE */
 		str = str ? str : "";
-		if (D_hstatus_lastmsg && strcmp(D_hstatus_lastmsg, str) == 0)
-			return;
+		if (D_hstatus_lastmsg && strcmp(D_hstatus_lastmsg, str) == 0) {
+			struct timeval now, diff;
+			gettimeofday(&now, NULL);
+			timersub(&now, &D_hstatus_time, &diff);
+			if (diff.tv_sec == 0 && diff.tv_usec < 50000)
+				return;
+		}
 		free(D_hstatus_lastmsg);
 		D_hstatus_lastmsg = SaveStr(str);
+		gettimeofday(&D_hstatus_time, NULL);
 
 		ox = D_x;
 		oy = D_y;
