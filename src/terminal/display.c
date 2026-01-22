@@ -1061,16 +1061,6 @@ void ScrollV(int xs, int ys, int xe, int ye, int n, int bce)
 	int alok, dlok, aldlfaster;
 	int missy = 0;
 
-	/* DEBUG: Log ALL scroll operations near bottom */
-	if (ye >= D_height - 3) {
-		FILE *dbg = fopen("/tmp/immorterm-scroll.log", "a");
-		if (dbg) {
-			fprintf(dbg, "[SCROLLV] ye=%d, D_height=%d, D_top=%d, D_bot=%d, D_has_hstatus=%d\n",
-				ye, D_height, D_top, D_bot, D_has_hstatus);
-			fclose(dbg);
-		}
-	}
-
 	if (n == 0)
 		return;
 	if (n >= ye - ys + 1 || -n >= ye - ys + 1) {
@@ -1132,14 +1122,6 @@ void ScrollV(int xs, int ys, int xe, int ye, int n, int bce)
 
 	if ((up || D_SR) && D_top == ys && D_bot == ye && !aldlfaster) {
 		if (up) {
-			/* DEBUG: Log actual scroll operation */
-			if (ye >= D_height - 3) {
-				FILE *dbg = fopen("/tmp/immorterm-scroll.log", "a");
-				if (dbg) {
-					fprintf(dbg, "[SCROLL-EXEC] GotoPos(0, %d) + NL, D_height=%d, D_has_hstatus=%d\n", ye, D_height, D_has_hstatus);
-					fclose(dbg);
-				}
-			}
 			GotoPos(0, ye);
 			for (int i = n; i-- > 0;)
 				AddCStr(D_NL);	/* was SF, I think NL is faster */
@@ -1686,15 +1668,6 @@ void ShowHStatus(char *str)
 		AddCStr(D_FS);
 		D_hstatus = true;
 	} else if (D_has_hstatus == HSTATUS_LASTLINE) {
-		/* DEBUG: Log hardstatus draw */
-		{
-			FILE *dbg = fopen("/tmp/immorterm-scroll.log", "a");
-			if (dbg) {
-				fprintf(dbg, "[HSTATUS] Drawing at y=%d, D_top=%d, D_bot=%d, D_height=%d\n",
-					D_height - 1, D_top, D_bot, D_height);
-				fclose(dbg);
-			}
-		}
 		ox = D_x;
 		oy = D_y;
 		str = str ? str : "";
@@ -2170,15 +2143,6 @@ void ChangeScrollRegion(int newtop, int newbot)
 		newtop = 0;
 	if (newbot == -1)
 		newbot = D_height - 1;
-	/* DEBUG: Log ALL scroll region requests BEFORE early returns */
-	{
-		FILE *dbg = fopen("/tmp/immorterm-scroll.log", "a");
-		if (dbg) {
-			fprintf(dbg, "[SCROLL] req=(%d,%d), curr=(%d,%d), D_height=%d, D_has_hstatus=%d (LASTLINE=%d)\n",
-				newtop, newbot, D_top, D_bot, D_height, D_has_hstatus, HSTATUS_LASTLINE);
-			fclose(dbg);
-		}
-	}
 	if (D_CS == NULL) {
 		D_top = 0;
 		D_bot = D_height - 1;
