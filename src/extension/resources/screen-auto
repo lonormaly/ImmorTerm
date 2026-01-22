@@ -45,7 +45,7 @@ if ! command -v "$SCREEN" >/dev/null 2>&1; then
 fi
 
 mkdir -p "$PROJECT_DIR/.vscode" "$LOGS_DIR" "$PENDING_DIR"
-[[ -f "$JSON" ]] || echo '{"artificialDelayMilliseconds":800,"terminals":[]}' > "$JSON"
+[[ -f "$JSON" ]] || echo '{"artificialDelayMilliseconds":0,"terminals":[]}' > "$JSON"
 
 # Debug log for auto-resume troubleshooting
 DEBUG_LOG="$PROJECT_DIR/.vscode/terminals/logs/auto-resume.log"
@@ -103,31 +103,16 @@ export IMMORTERM_BASE_NAME="$DISPLAY_NAME"  # Immutable base name for title cons
 
 # Print log history before attaching (so it appears in native scroll buffer)
 # Limit to last 20000 lines to prevent VS Code crashes on large logs
-# Filter out cursor positioning sequences that cause "crushed text" when terminal width differs
-# Keeps: colors (m), scrolling. Strips: cursor position (H/f), movement (A/B/C/D/E/F/G), erase (J/K), save/restore (s/u)
+# Minimal filtering: only strip cursor home (H) and screen clear (J) sequences
+# Terminal naturally handles everything else (colors, backspaces, etc.)
 LOG_LINES=20000
-filter_log() {
-  # Strip terminal manipulation sequences, KEEP colors (sequences ending in 'm')
-  #
-  # KEEP: ESC [ ... m  (colors and text attributes)
-  # STRIP everything else that causes layout issues:
-  #   - ESC [ ... (cursor, erase, scroll, modes) - all letters except 'm'
-  #   - ESC [ ? ... (private modes like cursor visibility, bracketed paste)
-  #   - ESC > and ESC = (keypad modes)
-  #   - ESC ( and ESC ) (character set selection)
-  #   - Carriage returns at end of lines
-  sed -E '
-    s/\x1b\[[0-9;]*[HfABCDEFGJKLMPXsudrtlnqhg@]//g
-    s/\x1b\[\?[0-9;]*[hlsr]//g
-    s/\x1b\[<u//g
-    s/\x1b[>=()]//g
-    s/\x1b\[[0-9;]*[cZ]//g
-    s/\r$//
-    s/\r//g
-  '
-}
+# Dump log history to VS Code's native scroll buffer
 if [[ -f "$LOGFILE" ]]; then
-  tail -n "$LOG_LINES" "$LOGFILE" | filter_log
+  # Print newline first to avoid zsh's PROMPT_SP marker (%)
+  echo ""
+  # Minimal filter: only remove cursor home (H) and screen clear (J) sequences
+  # Keep everything else including backspaces (terminal handles them correctly)
+  tail -n "$LOG_LINES" "$LOGFILE" | sed -E 's/\x1b\[[0-9;]*[HJ]//g'
 fi
 
 # ============================================================================
@@ -224,8 +209,12 @@ if [[ -z "$FULL_SESSION_ID" ]]; then
   "$SCREEN" -dmS "$SESSION" -c "$PROJECT_DIR/.vscode/terminals/screenrc" -h 50000
 
   # Get the full session ID of the newly created session
-  sleep 0.1  # Brief pause to ensure session is registered
-  FULL_SESSION_ID=$(find_best_session "$SESSION" || echo "$SESSION")
+  # Use fast polling instead of fixed sleep (typically completes in <50ms)
+  for attempt in 1 2 3 4 5; do
+    FULL_SESSION_ID=$(find_best_session "$SESSION" 2>/dev/null) && break
+    sleep 0.02  # 20ms between attempts, max 100ms total
+  done
+  [[ -z "$FULL_SESSION_ID" ]] && FULL_SESSION_ID="$SESSION"
   debug "Created new session: $FULL_SESSION_ID"
 
   # Enable logging AFTER session creation (appends, doesn't truncate)
@@ -270,6 +259,13 @@ fi
 # OSC 0 sequence sets terminal title - must be sent before screen takes over
 # otherwise VS Code shows "screen-5.0.1" (the process name)
 printf '\033]0;%s\007' "$DISPLAY_NAME"
+
+# Disable screen's internal scrollback dump (use log file approach instead)
+"$SCREEN" -S "$FULL_SESSION_ID" -X scrollback_dump off
+
+# Clear screen's display to prevent duplicate content on attach
+# (our log dump above already provided history in VS Code's scroll buffer)
+"$SCREEN" -S "$FULL_SESSION_ID" -X clear
 
 # Attach to the session using full session ID to avoid ambiguity
 # Use -D -RR to forcefully detach any stale attachments (e.g., dead displays from crashed VS Code)

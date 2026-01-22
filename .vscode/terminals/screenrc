@@ -42,10 +42,11 @@ vbell off
 autodetach on
 
 # ImmorTerm: Scrollback dump on reattach
-# When reattaching to a screen session, dump the scrollback buffer to VS Code's
-# native scrollback. This allows scrolling back through history after reattach.
-# Set to "off" to disable this feature.
-scrollback_dump on
+# DISABLED: The log file approach in screen-auto already handles scrollback
+# restoration properly. DumpScrollbackToTerminal captures visual terminal state
+# with cursor positioning, which causes garbled output. The log file captures
+# the raw byte stream which works correctly.
+scrollback_dump off
 
 # Use shell wrapper that sources shell-init.zsh before starting interactive shell
 shell $SCREEN_PROJECT_DIR/.vscode/terminals/shell-wrapper.zsh

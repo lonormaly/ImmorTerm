@@ -16,21 +16,28 @@ echo "Cleaning up all screen sessions for project: $PROJECT"
 
 # FIRST: Clear restore-terminals.json (prevents VS Code from restoring old terminals)
 if [[ -f "$RESTORE_FILE" ]]; then
-  echo '{ "artificialDelayMilliseconds": 800, "terminals": [] }' > "$RESTORE_FILE"
+  echo '{ "artificialDelayMilliseconds": 200, "terminals": [] }' > "$RESTORE_FILE"
   echo "Cleared restore-terminals.json"
 fi
 
 # Clean up any stale lock directories
 rm -rf "/tmp/vscode-screen-${PROJECT}.lock" 2>/dev/null || true
 
-# Kill all sessions matching pax-* pattern (handles any ID format)
+# Use configured screen binary
+SCREEN="${IMMORTERM_SCREEN_BINARY:-immorterm}"
+SCREEN_DIR="${SCREENDIR:-$HOME/.screen}"
+
+# Kill all sessions matching project-* pattern (handles any ID format)
 # Note: || true prevents script exit if grep finds no matches (pipefail)
-screen -ls 2>/dev/null | grep -oE "[0-9]+\\.${PROJECT}-[^[:space:]]+" | while read -r sess; do
-  screen -S "$sess" -X quit 2>/dev/null && echo "Killed: $sess" || true
+$SCREEN -ls 2>/dev/null | grep -oE "[0-9]+\\.${PROJECT}-[^[:space:]]+" | while read -r sess; do
+  $SCREEN -S "$sess" -X quit 2>/dev/null && echo "Killed: $sess" || true
+  # Also delete socket file directly (screen -X quit fails for "Remote or dead" sessions)
+  socket="$SCREEN_DIR/$sess"
+  [[ -S "$socket" ]] && rm -f "$socket" && echo "Deleted socket: $sess"
 done || true
 
 # Wipe dead sessions
-screen -wipe >/dev/null 2>&1 || true
+$SCREEN -wipe >/dev/null 2>&1 || true
 
 # Brief pause to let screens finish logging
 sleep 0.2

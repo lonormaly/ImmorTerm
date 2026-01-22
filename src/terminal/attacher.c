@@ -38,6 +38,7 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <unistd.h>
 
 #include "screen.h"
 
@@ -234,9 +235,19 @@ int Attach(int how)
 		ContinuePlease = false;
 		if (how != MSG_ATTACH)
 			return 0;	/* we detached it. jw. */
-		sleep(1);	/* we dont want to overrun our poor backend. jw. */
-		if ((lasts = MakeClientSocket(0)) == -1)
-			Panic(0, "Cannot contact screen again. Sigh.");
+		/* Poll for backend readiness instead of fixed 1-second sleep.
+		 * Try every 50ms, up to 1 second max. Usually connects in <100ms. */
+		{
+			int poll_attempts;
+			for (poll_attempts = 0; poll_attempts < 20; poll_attempts++) {
+				lasts = MakeClientSocket(0);
+				if (lasts != -1)
+					break;
+				usleep(50000);	/* 50ms between attempts */
+			}
+			if (lasts == -1)
+				Panic(0, "Cannot contact screen again. Sigh.");
+		}
 		m.type = how;
 	}
 	strncpy(m.m.attach.envterm, attach_term, MAXTERMLEN);

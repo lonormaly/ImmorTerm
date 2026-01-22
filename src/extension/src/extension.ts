@@ -684,19 +684,29 @@ function registerCommands(
         // Write updated settings
         await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
 
-        // Apply theme to screenrc if it exists, or create it
+        // Apply theme to screenrc - preserve existing customizations if file exists
         try {
-          const templateContent = await fs.readFile(templatePath, 'utf-8');
+          let baseContent: string;
+          try {
+            // Try to read existing screenrc first to preserve customizations
+            baseContent = await fs.readFile(screenrcPath, 'utf-8');
+            logger.info('Using existing screenrc as base for theme application');
+          } catch {
+            // screenrc doesn't exist yet, use template
+            baseContent = await fs.readFile(templatePath, 'utf-8');
+            logger.info('Using template as base for theme application');
+          }
           const theme = getTheme(selectedTheme.themeName);
           const themedHardstatus = `hardstatus alwayslastline ${generateHardstatus(theme)}`;
-          const themedContent = templateContent.replace(
+          const themedContent = baseContent.replace(
             /^hardstatus alwayslastline .+$/m,
             themedHardstatus
           );
           await fs.writeFile(screenrcPath, themedContent, 'utf-8');
           logger.info('Applied theme to screenrc:', selectedTheme.themeName);
-        } catch {
+        } catch (err) {
           // Template might not exist yet, that's okay - it will be created on first terminal
+          logger.warn('Could not apply theme to screenrc:', err);
         }
 
         vscode.window.showInformationMessage(
@@ -832,20 +842,20 @@ function registerCommands(
       }
 
       try {
-        // Read the template
-        const templateContent = await fs.readFile(templatePath, 'utf-8');
+        // Read the EXISTING screenrc (not template) to preserve customizations
+        const existingContent = await fs.readFile(screenrcPath, 'utf-8');
         const theme = getTheme(selectedTheme.themeName);
 
         // Generate the themed hardstatus line
         const themedHardstatus = `hardstatus alwayslastline ${generateHardstatus(theme)}`;
 
-        // Replace the hardstatus line in the template
-        const themedContent = templateContent.replace(
+        // Replace ONLY the hardstatus line, preserving everything else
+        const themedContent = existingContent.replace(
           /^hardstatus alwayslastline .+$/m,
           themedHardstatus
         );
 
-        // Write the themed screenrc
+        // Write back the modified screenrc
         await fs.writeFile(screenrcPath, themedContent, 'utf-8');
 
         // Save theme to workspace settings
@@ -1490,7 +1500,7 @@ export async function activate(
     restoreTerminalsWithDelay(
       terminalManager,
       { scriptsPath: terminalsDir },
-      500 // Brief startup delay
+      100 // Brief startup delay (reduced from 500ms - VS Code is ready by onStartupFinished)
     )
       .then((result) => {
         if (result.restored > 0) {

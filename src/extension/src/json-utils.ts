@@ -300,7 +300,7 @@ export function addTerminalToJson(windowId: string, displayName: string): boolea
     try {
         // Default config structure
         let config = {
-            artificialDelayMilliseconds: 800,
+            artificialDelayMilliseconds: 0,
             terminals: [] as Array<{ splitTerminals: Array<{ windowId: string; name: string; commands: string[] }> }>
         };
 
@@ -425,7 +425,7 @@ export function clearAllTerminalsFromJson(): boolean {
     try {
         // Create empty config structure
         const config = {
-            artificialDelayMilliseconds: 800,
+            artificialDelayMilliseconds: 0,
             terminals: [] as Array<{ splitTerminals: Array<{ windowId: string; name: string; commands: string[] }> }>
         };
 

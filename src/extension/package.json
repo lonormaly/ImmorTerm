@@ -195,11 +195,11 @@
         },
         "immorterm.terminalRestoreDelay": {
           "type": "number",
-          "default": 800,
-          "minimum": 100,
+          "default": 200,
+          "minimum": 50,
           "maximum": 5000,
           "description": "Delay in milliseconds between terminal restorations",
-          "markdownDescription": "Delay in milliseconds between terminal restorations.\n\n**Increase** if terminals fail to restore properly on slower systems.\n\n**Example**: `1500` for slower machines, `500` for fast SSDs."
+          "markdownDescription": "Delay in milliseconds between terminal restorations.\n\n**Increase** if terminals fail to restore properly on slower systems.\n\n**Example**: `500` for slower machines, `100` for fast SSDs."
         },
         "immorterm.restoreOnStartup": {
           "type": "boolean",

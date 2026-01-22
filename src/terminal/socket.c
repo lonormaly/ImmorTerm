@@ -90,28 +90,10 @@ static void FinishDetach(Message *);
 static void AskPassword(Message *);
 static bool CheckPassword(const char *password);
 static void PasswordProcessInput(char *, size_t);
-static void DumpScrollbackToTerminal(Window *win);
 
 static void KillUnpriv(pid_t pid, int sig) {
        UserContext();
        UserReturn(kill(pid, sig));
-}
-
-/*
- * ImmorTerm: Dump scrollback history directly to terminal on reattach.
- *
- * NOTE: This approach is DISABLED because screen's scrollback buffer stores
- * raw screen state (cursor positions, partial updates, escape sequences),
- * not clean text lines. Outputting this directly produces garbled results.
- *
- * Scrollback restoration is handled by screen-auto's log file dump instead,
- * which outputs filtered log content before attaching to screen.
- * The 'scrollback_dump' screenrc option now controls that bash-level feature.
- */
-static void DumpScrollbackToTerminal(Window *win)
-{
-	(void)win;  /* Unused - function disabled */
-	/* Scrollback restoration handled by screen-auto log dump instead */
 }
 
 #define SOCKMODE (S_IWRITE | S_IREAD | (displays ? S_IEXEC : 0) | (multi ? 1 : 0))
@@ -159,6 +141,36 @@ int FindSocket(int *fdp, int *nfoundp, int *notherp, char *match)
 		matchlen = strlen(match);
 		if (matchlen > FILENAME_MAX)
 			matchlen = FILENAME_MAX;
+	}
+
+	/*
+	 * FAST PATH: If we have an exact match with a PID prefix (e.g., "12345.sessionname"),
+	 * try direct connection first without scanning the directory.
+	 * This is the common case for ImmorTerm and saves ~50-200ms.
+	 */
+	if (match && fdp && !nfoundp && !notherp && !lsflag && !wipeflag) {
+		sdirlen = strlen(SocketPath);
+		sprintf(SocketPath + sdirlen, "/%s", match);
+		xseteuid(real_uid);
+		xsetegid(real_gid);
+		if (stat(SocketPath, &st) == 0 && S_ISSOCK(st.st_mode)) {
+			sockfd = MakeClientSocket(0);
+			if (sockfd != -1) {
+				mode = (int)st.st_mode & 0777;
+				/* Check if socket is in acceptable state */
+				if ((mode & 0776) == 0600 || (mode & 0776) == 0700) {
+					*fdp = sockfd;
+					xseteuid(eff_uid);
+					xsetegid(eff_gid);
+					return 1;  /* Found exactly one good socket */
+				}
+				close(sockfd);
+			}
+		}
+		/* Fast path failed, restore SocketPath and fall through to full scan */
+		SocketPath[sdirlen] = '\0';
+		xseteuid(eff_uid);
+		xsetegid(eff_gid);
 	}
 
 	/*
@@ -1084,9 +1096,6 @@ static void FinishAttach(Message *m)
 			display = olddisplay;	/* display_windows can change display */
 		}
 	}
-	/* ImmorTerm: Dump scrollback to VS Code's native scrollback on reattach */
-	if (fore)
-		DumpScrollbackToTerminal(fore);
 	Activate(0);
 	ResetIdle();
 	if (!D_fore && !noshowwin)

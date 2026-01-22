@@ -32,6 +32,15 @@
 
 #include <stdio.h>
 
+/* Buffer size for write buffering optimization.
+ * 4KB balances reduced syscalls vs memory usage per logfile. */
+#define LOG_BUFFER_SIZE 4096
+
+/* How often to check if logfile was stolen/modified.
+ * Checking every 100 buffer flushes reduces fstat() overhead significantly
+ * while still catching external modifications reasonably quickly. */
+#define LOG_STAT_CHECK_INTERVAL 100
+
 typedef struct Log Log;
 struct Log {
 	Log *next;
@@ -41,6 +50,10 @@ struct Log {
 	int writecount;	/* increments at logfwrite(), counts write() and fflush() */
 	int flushcount;	/* increments at logfflush(), zeroed at logfwrite() */
 	struct stat *st;/* how the file looks like */
+	/* Write buffering fields (optimization) */
+	char *buffer;		/* write buffer, allocated on first write */
+	size_t buflen;		/* current bytes in buffer */
+	int stat_countdown;	/* counts down to next fstat() check */
 };
 
 /*

@@ -53,7 +53,7 @@ interface RestorationDetail {
  */
 function getRestoreDelay(): number {
   const config = vscode.workspace.getConfiguration('immorterm');
-  return config.get<number>('terminalRestoreDelay', 800);
+  return config.get<number>('terminalRestoreDelay', 200);
 }
 
 /**
@@ -145,12 +145,18 @@ export async function restoreTerminals(
 
   logger.info(`Found ${terminals.length} terminals in JSON to restore`);
 
-  logger.info(`Restoring ${terminals.length} terminals...`);
+  // PARALLEL RESTORATION: Create all terminals concurrently for fast startup
+  // Uses a small stagger (50ms) between terminal creations to avoid VS Code race conditions
+  const STAGGER_DELAY = 50; // ms between starting each terminal creation
 
-  const restoreDelay = options.restoreDelay ?? getRestoreDelay();
+  logger.info(`Restoring ${terminals.length} terminals in parallel...`);
 
-  for (let i = 0; i < terminals.length; i++) {
-    const terminalState = terminals[i];
+  // Create restoration promises with staggered starts
+  const restorationPromises = terminals.map(async (terminalState, i) => {
+    // Small stagger to prevent VS Code terminal creation race conditions
+    if (i > 0) {
+      await delay(i * STAGGER_DELAY);
+    }
 
     try {
       const detail = await restoreSingleTerminal(
@@ -159,34 +165,34 @@ export async function restoreTerminals(
         options.scriptsPath,
         projectName
       );
-
-      result.details.push(detail);
-
-      switch (detail.status) {
-        case 'restored':
-          result.restored++;
-          break;
-        case 'failed':
-          result.failed++;
-          break;
-        case 'skipped':
-          result.skipped++;
-          break;
-      }
-
-      // Add delay between terminal creations (except for the last one)
-      if (i < terminals.length - 1 && restoreDelay > 0) {
-        await delay(restoreDelay);
-      }
+      return detail;
     } catch (error) {
       logger.error(`Failed to restore terminal ${terminalState.windowId}:`, error);
-      result.details.push({
+      return {
         windowId: terminalState.windowId,
         name: terminalState.name,
-        status: 'failed',
+        status: 'failed' as const,
         reason: error instanceof Error ? error.message : String(error),
-      });
-      result.failed++;
+      };
+    }
+  });
+
+  // Wait for all restorations to complete
+  const details = await Promise.all(restorationPromises);
+
+  // Aggregate results
+  for (const detail of details) {
+    result.details.push(detail);
+    switch (detail.status) {
+      case 'restored':
+        result.restored++;
+        break;
+      case 'failed':
+        result.failed++;
+        break;
+      case 'skipped':
+        result.skipped++;
+        break;
     }
   }
 
@@ -197,9 +203,9 @@ export async function restoreTerminals(
 
   // Show the terminal panel if any terminals were restored
   if (result.restored > 0) {
-    const terminals = vscode.window.terminals;
-    if (terminals.length > 0) {
-      terminals[0].show();
+    const allTerminals = vscode.window.terminals;
+    if (allTerminals.length > 0) {
+      allTerminals[0].show();
       logger.info('Revealed terminal panel after restoration');
     }
   }

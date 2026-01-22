@@ -1,9 +1,13 @@
 # ImmorTerm Shell Initialization
 # This file is sourced automatically for each ImmorTerm screen session
 # Provides dynamic window title with "last activity" timestamp
+# OPTIMIZED: Uses zsh built-ins to avoid forks
 
 # Only run inside screen sessions
 [[ -z "$STY" ]] && return
+
+# Load zsh datetime module for $EPOCHSECONDS (avoids forking to date)
+zmodload -F zsh/datetime b:EPOCHSECONDS 2>/dev/null
 
 # Use the same screen binary that created this session (screen vs immorterm use different sockets)
 SCREEN_CMD="${IMMORTERM_SCREEN_BINARY:-immorterm}"
@@ -21,7 +25,8 @@ _IMMORTERM_LAST_UPDATE=0
 _immorterm_title_update() {
     # Debounce: skip if updated within last 2 seconds
     # This prevents visual artifacts during rapid terminal output (e.g., Claude interactive)
-    local now=$(date +%s)
+    # Uses zsh built-in EPOCHSECONDS (no fork) with fallback
+    local now=${EPOCHSECONDS:-$(date +%s)}
     if (( now - _IMMORTERM_LAST_UPDATE < 2 )); then
         return
     fi
@@ -57,8 +62,10 @@ if [[ ! " ${precmd_functions[*]} " =~ " _immorterm_title_update " ]]; then
     precmd_functions+=(_immorterm_title_update)
 fi
 
-# Set initial title
-_immorterm_title_update
+# Set initial title (deferred to not block shell startup)
+# The title will be set on first prompt via precmd hook
+# For immediate title, we use printf which doesn't fork
+printf '\033]0;%s\007' "$IMMORTERM_BASE_NAME" > /dev/tty 2>/dev/null
 
 # Helper function to rename window manually
 sname() {

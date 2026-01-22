@@ -132,7 +132,7 @@ char     *captionstring;
 char     *wliststr;
 char     *wlisttit;
 bool      auto_detach = true;
-bool      scrollback_dump = true;  /* ImmorTerm: dump scrollback on reattach (default: on) */
+bool      scrollback_dump = false; /* ImmorTerm: dump scrollback on reattach (default: off, incomplete feature) */
 bool      adaptflag;
 bool      iflag;
 bool      lsflag;

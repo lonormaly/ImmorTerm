@@ -35,6 +35,7 @@
 #include <fcntl.h>		/* O_WRONLY for logfile_reopen */
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>		/* memcpy for write buffering */
 
 #include "screen.h"
 
@@ -46,6 +47,11 @@ static int stolen_logfile(Log *);
 
 static Log *logroot = NULL;
 
+/*
+ * Update cached stat info if file has grown.
+ * Called only periodically now (every LOG_STAT_CHECK_INTERVAL flushes)
+ * to reduce fstat() syscall overhead.
+ */
 static void changed_logfile(Log *l)
 {
 	struct stat o, *s = l->st;
@@ -56,6 +62,43 @@ static void changed_logfile(Log *l)
 		s->st_size = o.st_size;	/* this should have changed */
 		s->st_mtime = o.st_mtime;	/* only size and mtime */
 	}
+}
+
+/*
+ * Check if periodic stat is due and perform it.
+ * Returns 1 if logfile was stolen and needs reopen, 0 otherwise.
+ */
+static int periodic_stat_check(Log *l)
+{
+	if (--l->stat_countdown > 0)
+		return 0;	/* not time yet */
+
+	l->stat_countdown = LOG_STAT_CHECK_INTERVAL;
+
+	if (stolen_logfile(l))
+		return 1;
+
+	changed_logfile(l);
+	return 0;
+}
+
+/*
+ * Flush the write buffer to disk.
+ * Returns 0 on success, -1 on failure.
+ */
+static int flush_log_buffer(Log *l)
+{
+	if (!l->buffer || l->buflen == 0)
+		return 0;
+
+	if (fwrite(l->buffer, l->buflen, 1, l->fp) != 1) {
+		l->buflen = 0;
+		return -1;
+	}
+
+	l->buflen = 0;
+	l->writecount++;
+	return 0;
 }
 
 /*
@@ -176,6 +219,10 @@ Log *logfopen(char *name, FILE * fp)
 	l->opencount = 1;
 	l->writecount = 0;
 	l->flushcount = 0;
+	/* Initialize buffering fields */
+	l->buffer = NULL;	/* allocated lazily on first write */
+	l->buflen = 0;
+	l->stat_countdown = LOG_STAT_CHECK_INTERVAL;
 	changed_logfile(l);
 
 	l->next = logroot;
@@ -207,47 +254,95 @@ int logfclose(Log *l)
 		abort();
 
 	*lp = l->next;
+	/* Flush any buffered data before closing */
+	if (l->buffer && l->buflen > 0) {
+		fwrite(l->buffer, l->buflen, 1, l->fp);
+	}
 	fclose(l->fp);
+	free(l->buffer);	/* free write buffer if allocated */
 	free(l->name);
+	free((char *)l->st);
 	free((char *)l);
 	return 0;
 }
 
 /*
- * XXX
- * write and flush both *should* check the file's stat, if it disappeared
- * or changed, re-open it.
+ * Write to logfile with buffering optimization.
+ * Small writes are accumulated in a buffer and flushed when:
+ * - Buffer is full (LOG_BUFFER_SIZE bytes)
+ * - Incoming data is larger than remaining buffer space
+ * - logfflush() is called
+ *
+ * Stat checks are now periodic (every LOG_STAT_CHECK_INTERVAL flushes)
+ * instead of every write, reducing fstat() syscall overhead significantly.
  */
 int logfwrite(Log *l, char *buf, size_t n)
 {
-	int r;
+	/* Lazy buffer allocation on first write */
+	if (!l->buffer) {
+		l->buffer = malloc(LOG_BUFFER_SIZE);
+		if (!l->buffer) {
+			/* Fall back to unbuffered write on alloc failure */
+			return fwrite(buf, n, 1, l->fp);
+		}
+		l->buflen = 0;
+	}
 
-	if (stolen_logfile(l) && lf_reopen_fn(l->name, fileno(l->fp), l))
+	/* If data fits in buffer, just buffer it */
+	if (l->buflen + n <= LOG_BUFFER_SIZE) {
+		memcpy(l->buffer + l->buflen, buf, n);
+		l->buflen += n;
+		return 1;	/* success */
+	}
+
+	/* Buffer would overflow - flush it first */
+	/* Periodic stat check only on buffer flush, not every write */
+	if (periodic_stat_check(l) && lf_reopen_fn(l->name, fileno(l->fp), l))
 		return -1;
-	r = fwrite(buf, n, 1, l->fp);
-	l->writecount += l->flushcount + 1;
+
+	if (flush_log_buffer(l) < 0)
+		return -1;
+
+	/* If new data fits in empty buffer, buffer it */
+	if (n <= LOG_BUFFER_SIZE) {
+		memcpy(l->buffer, buf, n);
+		l->buflen = n;
+		return 1;
+	}
+
+	/* Data larger than buffer - write directly */
+	if (fwrite(buf, n, 1, l->fp) != 1)
+		return -1;
+	l->writecount++;
 	l->flushcount = 0;
-	changed_logfile(l);
-	return r;
+	return 1;
 }
 
 int logfflush(Log *l)
 {
 	int r = 0;
 
-	if (!l)
+	if (!l) {
+		/* Flush all logfiles */
 		for (l = logroot; l; l = l->next) {
-			if (stolen_logfile(l) && lf_reopen_fn(l->name, fileno(l->fp), l))
+			/* Periodic stat check on flush */
+			if (periodic_stat_check(l) && lf_reopen_fn(l->name, fileno(l->fp), l))
+				return -1;
+			/* Flush our write buffer first */
+			if (flush_log_buffer(l) < 0)
 				return -1;
 			r |= fflush(l->fp);
 			l->flushcount++;
-			changed_logfile(l);
+		}
 	} else {
-		if (stolen_logfile(l) && lf_reopen_fn(l->name, fileno(l->fp), l))
+		/* Flush specific logfile */
+		if (periodic_stat_check(l) && lf_reopen_fn(l->name, fileno(l->fp), l))
+			return -1;
+		/* Flush our write buffer first */
+		if (flush_log_buffer(l) < 0)
 			return -1;
 		r = fflush(l->fp);
 		l->flushcount++;
-		changed_logfile(l);
 	}
 	return r;
 }

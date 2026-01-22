@@ -6,16 +6,23 @@ PROJECT="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]')"
 RESTORE_FILE="$PROJECT_DIR/.vscode/restore-terminals.json"
 LOGS_DIR="$PROJECT_DIR/.vscode/terminals/logs"
 
+# Use configured screen binary
+SCREEN="${IMMORTERM_SCREEN_BINARY:-immorterm}"
+SCREEN_DIR="${SCREENDIR:-$HOME/.screen}"
+
 echo "Killing all $PROJECT screen sessions..."
 
 # Find and kill all project screen sessions
-screen -ls 2>/dev/null | grep -oE "[0-9]+\.${PROJECT}-[0-9]+" | while read session; do
+$SCREEN -ls 2>/dev/null | grep -oE "[0-9]+\.${PROJECT}-[^[:space:]]+" | while read session; do
   echo "  Killing $session"
-  screen -S "$session" -X quit
+  $SCREEN -S "$session" -X quit 2>/dev/null || true
+  # Also delete socket file directly (screen -X quit fails for "Remote or dead" sessions)
+  socket="$SCREEN_DIR/$session"
+  [[ -S "$socket" ]] && rm -f "$socket" && echo "  Deleted socket: $session"
 done
 
 # Clear restore-terminals.json
-echo '{"artificialDelayMilliseconds": 800, "terminals": []}' | jq '.' > "$RESTORE_FILE"
+echo '{"artificialDelayMilliseconds": 200, "terminals": []}' | jq '.' > "$RESTORE_FILE"
 echo "Cleared restore-terminals.json"
 
 # Delete all log files
@@ -25,6 +32,6 @@ if [[ -d "$LOGS_DIR" ]]; then
 fi
 
 # Clean up dead sessions
-screen -wipe >/dev/null 2>&1 || true
+$SCREEN -wipe >/dev/null 2>&1 || true
 
 echo "Done!"

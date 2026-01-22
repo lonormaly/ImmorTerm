@@ -251,18 +251,22 @@ async function extractScreenrcWithTheme(
   targetPath: string,
   forceOverwrite: boolean = false
 ): Promise<'extracted' | 'skipped'> {
-  // Check if target already exists (preserve user modifications unless forcing)
-  if (!forceOverwrite) {
-    try {
-      await fs.access(targetPath);
+  // Check if target already exists
+  let existingContent: string | null = null;
+  try {
+    existingContent = await fs.readFile(targetPath, 'utf-8');
+    if (!forceOverwrite) {
+      // File exists and we're not forcing - skip entirely
       logger.debug('Skipping existing screenrc:', targetPath);
       return 'skipped';
-    } catch {
-      // File doesn't exist, proceed with extraction
     }
+    // File exists and forceOverwrite=true - we'll update just the hardstatus line
+    logger.debug('Updating existing screenrc (preserving customizations):', targetPath);
+  } catch {
+    // File doesn't exist, proceed with extraction from template
   }
 
-  // Check if source exists
+  // Check if source exists (needed when creating new screenrc)
   try {
     await fs.access(sourcePath);
   } catch {
@@ -271,8 +275,13 @@ async function extractScreenrcWithTheme(
   }
 
   try {
-    // Read the template
-    const templateContent = await fs.readFile(sourcePath, 'utf-8');
+    // Use existing content if available, otherwise read template
+    let baseContent: string;
+    if (existingContent) {
+      baseContent = existingContent;
+    } else {
+      baseContent = await fs.readFile(sourcePath, 'utf-8');
+    }
 
     // Get the selected theme from VS Code configuration
     const config = vscode.workspace.getConfiguration('immorterm');
@@ -284,9 +293,8 @@ async function extractScreenrcWithTheme(
     // Generate the themed hardstatus line
     const themedHardstatus = `hardstatus alwayslastline ${generateHardstatus(theme)}`;
 
-    // Replace the hardstatus line in the template
-    // Match the line that starts with "hardstatus alwayslastline"
-    const themedContent = templateContent.replace(
+    // Replace ONLY the hardstatus line, preserving everything else
+    const themedContent = baseContent.replace(
       /^hardstatus alwayslastline .+$/m,
       themedHardstatus
     );
