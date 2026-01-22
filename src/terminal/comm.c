@@ -182,6 +182,7 @@ struct comm comms[RC_LAST + 1] =
   { "resize",		NEED_DISPLAY|ARGS_0|ARGS_ORMORE,{NULL} },
   { "screen",		ARGS_0|ARGS_ORMORE,		{NULL} },
   { "scrollback",	NEED_FORE|ARGS_1,		{NULL} },
+  { "scrollback_dump",	ARGS_1,				{NULL} },  /* ImmorTerm: dump scrollback on reattach */
   { "select",		CAN_QUERY|ARGS_01,		{NULL} },
   { "sessionname",	ARGS_01,			{NULL} },
   { "setenv",		ARGS_012,			{NULL} },
@@ -227,6 +228,5 @@ struct comm comms[RC_LAST + 1] =
   { "xon",		NEED_LAYER|ARGS_0,		{NULL} },
   { "zmodem",		ARGS_012,			{NULL} },
   { "zombie",		ARGS_012,			{NULL} },
-  { "zombie_timeout",	ARGS_1,				{NULL} },
-  { "scrollback_dump",	ARGS_1,				{NULL} }  /* ImmorTerm: dump scrollback on reattach */
+  { "zombie_timeout",	ARGS_1,				{NULL} }
 };
