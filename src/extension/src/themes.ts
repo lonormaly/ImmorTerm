@@ -218,6 +218,42 @@ export const themes: Record<string, Theme> = {
     fg: '#FFFFFF',
     fgAccent: '#00F3FF',
   },
+  'Monochrome Dark': {
+    name: 'Monochrome Dark',
+    bg1: '#000000',
+    bg2: '#1A1A1A',
+    bg3: '#2D2D2D',
+    bg4: '#404040',
+    bg5: '#555555',
+    bg6: '#6A6A6A',
+    bg7: '#808080',
+    fg: '#FFFFFF',
+    fgAccent: '#CCCCCC',
+  },
+  'Monochrome Light': {
+    name: 'Monochrome Light',
+    bg1: '#FFFFFF',
+    bg2: '#F0F0F0',
+    bg3: '#E0E0E0',
+    bg4: '#D0D0D0',
+    bg5: '#C0C0C0',
+    bg6: '#B0B0B0',
+    bg7: '#A0A0A0',
+    fg: '#000000',
+    fgAccent: '#333333',
+  },
+  'Crimson': {
+    name: 'Crimson',
+    bg1: '#1A0000',
+    bg2: '#330000',
+    bg3: '#4D0000',
+    bg4: '#660000',
+    bg5: '#800000',
+    bg6: '#990000',
+    bg7: '#CC0000',
+    fg: '#FFFFFF',
+    fgAccent: '#FF6666',
+  },
 };
 
 /**
@@ -234,7 +270,7 @@ export function getTheme(name: string): Theme {
  * Note: %I = last I/O activity timestamp (ImmorTerm C code feature - zero polling!)
  */
 export function generateHardstatus(theme: Theme): string {
-  return `'%{= ${theme.fg};${theme.bg1}} %2\` %{= ${theme.fg};${theme.bg2}}/ %{= ${theme.fg};${theme.bg3}}%t %=%{= ${theme.fgAccent};${theme.bg4}} Last Active: %{= ${theme.fg};${theme.bg5}}%I %{= ${theme.fg};${theme.bg6}} ImmorTerm %{-}'`;
+  return `'%{= ${theme.fg};${theme.bg1}} %2\` %{= ${theme.fg};${theme.bg2}} / %{= ${theme.fg};${theme.bg3}} %t %=%{= ${theme.fgAccent};${theme.bg4}} Last Active: %{= ${theme.fg};${theme.bg5}} %I %{= ${theme.fg};${theme.bg6}} ImmorTerm %{-}'`;
 }
 
 /**
@@ -264,6 +300,9 @@ export const themeLabels: Record<string, string> = {
   'One Dark': '🌑 One Dark',
   'Catppuccin': '🐱 Catppuccin',
   'Synthwave': '🌆 Synthwave',
+  'Monochrome Dark': '⬛ Monochrome Dark',
+  'Monochrome Light': '⬜ Monochrome Light',
+  'Crimson': '🔴 Crimson',
 };
 
 /**
