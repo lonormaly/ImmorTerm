@@ -4,7 +4,6 @@ import { promisify } from 'util';
 import { TerminalManager } from './manager';
 import { TerminalState } from '../storage/workspace-state';
 import { createTerminalWithScreen, isScreenAvailable, isModifiableName } from './screen-integration';
-import { screenCommands } from '../utils/screen-commands';
 import { logger } from '../utils/logger';
 import { shouldCloseExistingOnRestore } from '../utils/settings';
 import { getAllTerminalsFromJson } from '../json-utils';
@@ -232,19 +231,12 @@ async function restoreSingleTerminal(
 
   logger.debug(`Restoring terminal: ${windowId} "${name}"`);
 
-  // Check if Screen session exists
-  const sessionExists = await screenCommands.sessionExists(screenSession);
-
-  if (sessionExists) {
-    // Check if session is already attached (by another window)
-    const sessions = await screenCommands.listSessions();
-    const session = sessions.get(screenSession);
-
-    if (session?.attached) {
-      logger.debug(`Session ${screenSession} is attached elsewhere, detaching first`);
-      await screenCommands.detachSession(screenSession);
-    }
-  }
+  // NOTE: Session existence and detach checks removed for performance.
+  // The screen-auto script handles session management automatically:
+  // - Uses -D -RR flags to forcefully detach stale attachments
+  // - Creates new sessions if none exist
+  // - Handles dead/remote session cleanup
+  // This saves ~100-200ms per terminal by avoiding redundant screen -ls calls.
 
   // Determine if this name is modifiable (can be changed by Claude via OSC)
   // - Modifiable (immorterm-N, ✳ prefix): Use grace period + OSC injection
@@ -282,10 +274,10 @@ async function restoreSingleTerminal(
     lastAttached: Date.now(),
   });
 
-  const status = sessionExists ? 'restored' : 'restored';
-  const reason = sessionExists
-    ? 'Reattached to existing Screen session'
-    : 'Created new Screen session (previous session was lost)';
+  // Since we no longer check session existence (screen-auto handles it),
+  // always report as restored - the script handles both reattach and new session cases
+  const status = 'restored';
+  const reason = 'Screen session attached (via screen-auto)';
 
   logger.info(`Restored terminal: ${windowId} "${name}" - ${reason}`);
 

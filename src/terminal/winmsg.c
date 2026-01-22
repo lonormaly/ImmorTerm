@@ -482,6 +482,20 @@ __WinMsgEscEsc_time(WinMsgBufContext *wmbc, struct tm *tm, WinMsgEsc esc)
             wmbc_printf(wmbc, esc.flags.zero ? "%02d:%02d" : "%2d:%02d", tm->tm_hour, tm->tm_min);
 }
 
+/* ImmorTerm: Last I/O activity time (%I escape) */
+static void
+__WinMsgEscEsc_LastActivity(WinMsgBufContext *wmbc, Window *win)
+{
+	if (win && win->w_last_activity > 0) {
+		struct tm *activity_tm = localtime(&win->w_last_activity);
+		if (activity_tm) {
+			wmbc_printf(wmbc, "%02d:%02d", activity_tm->tm_hour, activity_tm->tm_min);
+			return;
+		}
+	}
+	wmbc_printf(wmbc, "--:--");
+}
+
 winmsg_esc_ex(WinNum, Window *win)
 {
 	if (esc->num == 0)
@@ -743,6 +757,9 @@ char *MakeWinMsgEv(WinMsgBuf *winmsg, char *str, Window *win,
 			break;
 		case WINESC_HSTATUS:
 			WinMsgDoEscEx(Hstatus, win, &tick, rec);
+			break;
+		case WINESC_LAST_ACTIVITY:
+			__WinMsgEscEsc_LastActivity(wmbc, win);
 			break;
 		case WINESC_BACKTICK:
 			WinMsgDoEscEx(Backtick, esc.num, win, &tick, &now, rec);

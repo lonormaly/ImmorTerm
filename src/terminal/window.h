@@ -217,6 +217,7 @@ struct Window {
 	int	 w_bell;		/* bell status of this window */
 	int	 w_flow;		/* flow flags */
 	Log	 *w_log;	/* log to file */
+	time_t	 w_last_activity;	/* timestamp of last I/O activity (for status bar) */
 	int	 w_logsilence;		/* silence in secs */
 	int	 w_monitor;		/* monitor status */
 	int	 w_silencewait;		/* wait for silencewait secs */

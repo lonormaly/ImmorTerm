@@ -219,6 +219,10 @@ void WriteString(Window *win, char *buf, size_t len)
 
 	if (len == 0)
 		return;
+
+	/* Update last activity timestamp for status bar %A escape */
+	win->w_last_activity = time(NULL);
+
 	if (win->w_log)
 		WLogString(win, buf, len);
 

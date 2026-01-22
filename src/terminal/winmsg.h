@@ -60,6 +60,7 @@ typedef enum {
 	WINESC_WIN_GROUP       = 'g',
 	WINESC_HOST            = 'H',
 	WINESC_HSTATUS         = 'h',
+	WINESC_LAST_ACTIVITY   = 'I',  /* last I/O activity timestamp (ImmorTerm) */
 	WINESC_MONTH           = 'M',
 	WINESC_month           = 'm',
 	WINESC_WIN_LOGNAME     = 'N',
