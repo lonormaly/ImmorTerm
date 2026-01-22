@@ -10,11 +10,15 @@ termcapinfo xterm* ti@:te@:XT
 # bypassing this setting. This just disables the AKA escape sequence behavior.
 defdynamictitle off
 
+# Backtick command to extract project name from path (runs once)
+backtick 2 0 0 basename $SCREEN_PROJECT_DIR
+
 # ImmorTerm branded status bar using hardstatus
-# Left: window title | Right: last activity time + ImmorTerm branding
+# Left: project name / window title | Right: last activity time + ImmorTerm branding
+# %2` = project name (backtick 2), %t = window title
 # %I = last I/O activity time (ImmorTerm C code feature - zero polling!)
-# Color gradient: dark purple -> purple -> magenta
-hardstatus alwayslastline '%{= #FFFFFF;#2D004D} %t %=%{= #E0B0FF;#5B2C8A} %I %{= #FFFFFF;#8B008B} ImmorTerm %{-}'
+# Color gradient: dark purple -> indigo -> purple -> violet -> magenta
+hardstatus alwayslastline '%{= #FFFFFF;#2D004D} %2` %{= #FFFFFF;#3D1A6D}/ %t %=%{= #E0B0FF;#5B2C8A} Last Active: %{= #FFFFFF;#6B3FA0}%I %{= #FFFFFF;#8B008B} ImmorTerm %{-}'
 
 # Use 256 colors with UTF-8 support
 term screen-256color

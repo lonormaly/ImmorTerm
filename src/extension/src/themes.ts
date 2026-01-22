@@ -6,9 +6,8 @@
  * - bg2: Separator "/"
  * - bg3: Window title
  * - bg4: "Last Active:" label
- * - bg5: Timestamp value
- * - bg6: Memory display
- * - bg7: "ImmorTerm" branding (lightest/rightmost)
+ * - bg5: Timestamp value (uses %I escape - zero polling!)
+ * - bg6: "ImmorTerm" branding (lightest/rightmost)
  * - fg: Default foreground (text) color
  * - fgAccent: Accent foreground for "Last Active:" label
  */
@@ -20,8 +19,8 @@ export interface Theme {
   bg3: string;  // Window title
   bg4: string;  // "Last Active:" label
   bg5: string;  // Timestamp value
-  bg6: string;  // Memory display
-  bg7: string;  // "ImmorTerm" branding (lightest)
+  bg6: string;  // "ImmorTerm" branding (was memory, now branding)
+  bg7: string;  // Kept for backward compatibility
   fg: string;
   fgAccent: string;
 }
@@ -230,11 +229,12 @@ export function getTheme(name: string): Theme {
 
 /**
  * Generate the hardstatus line for a given theme
- * Layout: [project] [/] [title] ... [Last Active:] [time] [memory] [ImmorTerm]
- *         bg1       bg2  bg3        bg4            bg5    bg6      bg7
+ * Layout: [project] [/] [title] ... [Last Active:] [time] [ImmorTerm]
+ *         bg1       bg2  bg3        bg4            bg5    bg6
+ * Note: %I = last I/O activity timestamp (ImmorTerm C code feature - zero polling!)
  */
 export function generateHardstatus(theme: Theme): string {
-  return `'%{= ${theme.fg};${theme.bg1}} %2\` %{= ${theme.fg};${theme.bg2}} / %{= ${theme.fg};${theme.bg3}} %t %=%{= ${theme.fgAccent};${theme.bg4}} Last Active: %{= ${theme.fg};${theme.bg5}} %3\` %{= ${theme.fg};${theme.bg6}} %1\` %{= ${theme.fg};${theme.bg7}} ImmorTerm %{-}'`;
+  return `'%{= ${theme.fg};${theme.bg1}} %2\` %{= ${theme.fg};${theme.bg2}}/ %{= ${theme.fg};${theme.bg3}}%t %=%{= ${theme.fgAccent};${theme.bg4}} Last Active: %{= ${theme.fg};${theme.bg5}}%I %{= ${theme.fg};${theme.bg6}} ImmorTerm %{-}'`;
 }
 
 /**
