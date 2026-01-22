@@ -59,6 +59,15 @@ enum {
 	CSI_ESC_SEEN, CSI_BEGIN, CSI_INACTIVE, CSI_INVALID
 };
 
+/*
+ * Helper macros for computing scroll region bounds that account for hardstatus.
+ * When hardstatus is displayed on the first or last line, the scroll region
+ * must exclude that line to prevent the hardstatus from being scrolled into
+ * the terminal's scroll buffer (which causes visible duplication with ti@:te@).
+ */
+#define SCROLL_TOP_DEFAULT() ((D_has_hstatus == HSTATUS_FIRSTLINE) ? 1 : 0)
+#define SCROLL_BOT_DEFAULT() ((D_has_hstatus == HSTATUS_LASTLINE) ? D_height - 2 : D_height - 1)
+
 static int CountChars(int);
 static int DoAddChar(int);
 static int BlankResize(int, int);
@@ -334,7 +343,7 @@ void InitTerm(int adapt)
 	D_atyp = 0;
 	if (adapt == 0)
 		ResizeDisplay(D_defwidth, D_defheight);
-	ChangeScrollRegion(0, D_height - 1);
+	ChangeScrollRegion(SCROLL_TOP_DEFAULT(), SCROLL_BOT_DEFAULT());
 	D_x = D_y = 0;
 	Flush(3);
 	ClearAll();
@@ -348,7 +357,7 @@ void FinitTerm(void)
 	if (D_tcinited) {
 		ResizeDisplay(D_defwidth, D_defheight);
 		InsertMode(false);
-		ChangeScrollRegion(0, D_height - 1);
+		ChangeScrollRegion(SCROLL_TOP_DEFAULT(), SCROLL_BOT_DEFAULT());
 		KeypadMode(0);
 		CursorkeysMode(0);
 		CursorVisibility(0);
@@ -943,7 +952,7 @@ void Redisplay(int cur_only)
 {
 	/* XXX do em all? */
 	InsertMode(false);
-	ChangeScrollRegion(0, D_height - 1);
+	ChangeScrollRegion(SCROLL_TOP_DEFAULT(), SCROLL_BOT_DEFAULT());
 	KeypadMode(0);
 	CursorkeysMode(0);
 	CursorVisibility(0);
@@ -1052,6 +1061,16 @@ void ScrollV(int xs, int ys, int xe, int ye, int n, int bce)
 	int alok, dlok, aldlfaster;
 	int missy = 0;
 
+	/* DEBUG: Log ALL scroll operations near bottom */
+	if (ye >= D_height - 3) {
+		FILE *dbg = fopen("/tmp/immorterm-scroll.log", "a");
+		if (dbg) {
+			fprintf(dbg, "[SCROLLV] ye=%d, D_height=%d, D_top=%d, D_bot=%d, D_has_hstatus=%d\n",
+				ye, D_height, D_top, D_bot, D_has_hstatus);
+			fclose(dbg);
+		}
+	}
+
 	if (n == 0)
 		return;
 	if (n >= ye - ys + 1 || -n >= ye - ys + 1) {
@@ -1113,6 +1132,14 @@ void ScrollV(int xs, int ys, int xe, int ye, int n, int bce)
 
 	if ((up || D_SR) && D_top == ys && D_bot == ye && !aldlfaster) {
 		if (up) {
+			/* DEBUG: Log actual scroll operation */
+			if (ye >= D_height - 3) {
+				FILE *dbg = fopen("/tmp/immorterm-scroll.log", "a");
+				if (dbg) {
+					fprintf(dbg, "[SCROLL-EXEC] GotoPos(0, %d) + NL, D_height=%d, D_has_hstatus=%d\n", ye, D_height, D_has_hstatus);
+					fclose(dbg);
+				}
+			}
 			GotoPos(0, ye);
 			for (int i = n; i-- > 0;)
 				AddCStr(D_NL);	/* was SF, I think NL is faster */
@@ -1659,6 +1686,15 @@ void ShowHStatus(char *str)
 		AddCStr(D_FS);
 		D_hstatus = true;
 	} else if (D_has_hstatus == HSTATUS_LASTLINE) {
+		/* DEBUG: Log hardstatus draw */
+		{
+			FILE *dbg = fopen("/tmp/immorterm-scroll.log", "a");
+			if (dbg) {
+				fprintf(dbg, "[HSTATUS] Drawing at y=%d, D_top=%d, D_bot=%d, D_height=%d\n",
+					D_height - 1, D_top, D_bot, D_height);
+				fclose(dbg);
+			}
+		}
 		ox = D_x;
 		oy = D_y;
 		str = str ? str : "";
@@ -2077,7 +2113,7 @@ void WrapChar(struct mchar *c, int x, int y, int xs, int ys, int xe, int ye, boo
 			y--;
 		}
 	} else if (y == D_bot)	/* remove unusable region? */
-		ChangeScrollRegion(0, D_height - 1);
+		ChangeScrollRegion(SCROLL_TOP_DEFAULT(), SCROLL_BOT_DEFAULT());
 	if (D_x != D_width || D_y != y) {
 		if (D_CLP && y >= 0)	/* don't even try if !LP */
 			RefreshLine(y, D_width - 1, D_width - 1, 0);
@@ -2134,6 +2170,15 @@ void ChangeScrollRegion(int newtop, int newbot)
 		newtop = 0;
 	if (newbot == -1)
 		newbot = D_height - 1;
+	/* DEBUG: Log ALL scroll region requests BEFORE early returns */
+	{
+		FILE *dbg = fopen("/tmp/immorterm-scroll.log", "a");
+		if (dbg) {
+			fprintf(dbg, "[SCROLL] req=(%d,%d), curr=(%d,%d), D_height=%d, D_has_hstatus=%d (LASTLINE=%d)\n",
+				newtop, newbot, D_top, D_bot, D_height, D_has_hstatus, HSTATUS_LASTLINE);
+			fclose(dbg);
+		}
+	}
 	if (D_CS == NULL) {
 		D_top = 0;
 		D_bot = D_height - 1;
