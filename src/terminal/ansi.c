@@ -1315,13 +1315,6 @@ static int StringEnd(Window *win)
 		if (typ != 0 && typ != 2)
 			break;
 
-		/* ImmorTerm: Update window title (%t) synchronously with OSC passthrough.
-		 * This ensures the screen status bar updates at the same time as the VS Code tab.
-		 * Then skip the APC fallthrough to prevent duplicate status bar rendering.
-		 */
-		ChangeAKA(win, p, strlen(p));
-		break;
-
 		win->w_stringp -= p - win->w_string;
 		if (win->w_stringp > win->w_string)
 			memmove(win->w_string, p, win->w_stringp - win->w_string);
