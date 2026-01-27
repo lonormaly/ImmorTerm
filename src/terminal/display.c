@@ -2147,23 +2147,9 @@ void ChangeScrollRegion(int newtop, int newbot)
 		newtop = 0;
 	if (newbot == -1)
 		newbot = D_height - 1;
-
-	/*
-	 * ImmorTerm: Protect hardstatus line from being included in scroll region.
-	 * When hardstatus is on the last line (HSTATUS_LASTLINE), the scroll region
-	 * must never include that line. Otherwise, scrolling operations will push
-	 * the status bar into the scrollback buffer, causing visible duplication
-	 * when using ti@:te@ (alternate screen buffer disabled for VS Code native
-	 * scrolling). This is a defensive clamp that catches all code paths.
-	 */
-	if (D_has_hstatus == HSTATUS_LASTLINE && newbot >= D_height - 1)
-		newbot = D_height - 2;
-	if (D_has_hstatus == HSTATUS_FIRSTLINE && newtop <= 0)
-		newtop = 1;
-
 	if (D_CS == NULL) {
-		D_top = SCROLL_TOP_DEFAULT();
-		D_bot = SCROLL_BOT_DEFAULT();
+		D_top = 0;
+		D_bot = D_height - 1;
 		return;
 	}
 	if (D_top == newtop && D_bot == newbot)
