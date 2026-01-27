@@ -59,9 +59,14 @@ enum {
 	CSI_ESC_SEEN, CSI_BEGIN, CSI_INACTIVE, CSI_INVALID
 };
 
-/* Stock screen 5.0.1 behavior - no special scroll region handling for hardstatus */
-#define SCROLL_TOP_DEFAULT() 0
-#define SCROLL_BOT_DEFAULT() (D_height - 1)
+/*
+ * Helper macros for computing scroll region bounds that account for hardstatus.
+ * When hardstatus is displayed on the first or last line, the scroll region
+ * must exclude that line to prevent the hardstatus from being scrolled into
+ * the terminal's scroll buffer (which causes visible duplication with ti@:te@).
+ */
+#define SCROLL_TOP_DEFAULT() ((D_has_hstatus == HSTATUS_FIRSTLINE) ? 1 : 0)
+#define SCROLL_BOT_DEFAULT() ((D_has_hstatus == HSTATUS_LASTLINE) ? D_height - 2 : D_height - 1)
 
 static int CountChars(int);
 static int DoAddChar(int);
@@ -1646,6 +1651,14 @@ void ShowHStatus(char *str)
 		return;
 	}
 
+	/* ImmorTerm: Handle size mismatch during resize.
+	 * During rapid resize, the terminal size may differ from D_width/D_height.
+	 * Instead of skipping rendering (leaving blank status), we:
+	 * 1. Get the actual terminal size
+	 * 2. Use the SMALLER of D_width and actual width for rendering
+	 * 3. This prevents wrapping while still showing the status bar
+	 */
+
 	if (D_HS && D_has_hstatus == HSTATUS_HS) {
 		if (!D_hstatus && (str == NULL || *str == 0))
 			return;
@@ -1665,41 +1678,110 @@ void ShowHStatus(char *str)
 		AddCStr(D_FS);
 		D_hstatus = true;
 	} else if (D_has_hstatus == HSTATUS_LASTLINE) {
-		/* Stock screen 5.0.1 behavior - reverted ImmorTerm modifications */
+		struct winsize ws;
+		int actual_width = D_width;
+		int actual_height = D_height;
+		int clear_width;
+		int target_row;
+
+		/* ImmorTerm: Get actual terminal size to prevent wrapping during resize.
+		 * Use the SMALLER of D_width and actual terminal width for rendering.
+		 * This ensures status bar never exceeds terminal width, preventing wrap.
+		 */
+		if (ioctl(D_userfd, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0) {
+			if (ws.ws_col < actual_width)
+				actual_width = ws.ws_col;
+			if (ws.ws_row < actual_height)
+				actual_height = ws.ws_row;
+		}
+
+		/* ImmorTerm: Don't render status bar if terminal is too narrow.
+		 * A status bar in < 20 columns is useless and causes artifacts.
+		 */
+		if (actual_width < 20)
+			return;
+
+		/* Target row is last line of actual terminal, not D_height */
+		target_row = actual_height - 1;
+		if (target_row < 0)
+			return;
+
 		ox = D_x;
 		oy = D_y;
+
+		/* ImmorTerm: Clear entire row first to prevent artifacts.
+		 * Use max of D_width and actual_width to catch any residual content
+		 * from previous renders at different widths.
+		 */
+		clear_width = (D_width > actual_width) ? D_width : actual_width;
+		D_y = -1;
+		GotoPos(0, target_row);
+		SetRendition(&mchar_null);
+		ClearArea(0, target_row, 0, clear_width - 1, clear_width - 1, target_row, 0, 0);
+
+		/* Now render the status bar content */
 		str = str ? str : "";
 		l = strlen(str);
-		if (l > D_width)
-			l = D_width;
-		GotoPos(0, D_height - 1);
-		SetRendition(&mchar_null);
+		if (l > actual_width)
+			l = actual_width;
+		/* ImmorTerm: Force absolute cursor positioning for status bar.
+		 * Setting D_y = -1 ensures GotoPos sends an explicit positioning
+		 * command rather than returning early when D_x/D_y happen to match
+		 * the target. This prevents stray characters at column 0 when the
+		 * terminal's actual cursor position desyncs from our tracking
+		 * (e.g., during resize or after OSC title changes).
+		 */
+		D_y = -1;
+		GotoPos(0, target_row);
 		l = PrePutWinMsg(str, 0, l);
 		if (!captionalways && D_cvlist && !D_cvlist->c_next)
-			while (l++ < D_width)
+			while (l++ < actual_width)
 				PUTCHARLP(' ');
-		if (l < D_width)
-			ClearArea(l, D_height - 1, l, D_width - 1, D_width - 1, D_height - 1, 0, 0);
+		if (l < actual_width)
+			ClearArea(l, target_row, l, actual_width - 1, actual_width - 1, target_row, 0, 0);
 		if (ox != -1 && oy != -1)
 			GotoPos(ox, oy);
 		D_hstatus = (str != NULL);
 		SetRendition(&mchar_null);
 	} else if (D_has_hstatus == HSTATUS_FIRSTLINE) {
-		/* Stock screen 5.0.1 behavior - reverted ImmorTerm modifications */
+		struct winsize ws;
+		int actual_width = D_width;
+		int clear_width;
+
+		/* ImmorTerm: Get actual terminal size to prevent wrapping during resize */
+		if (ioctl(D_userfd, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0) {
+			if (ws.ws_col < actual_width)
+				actual_width = ws.ws_col;
+		}
+
+		/* ImmorTerm: Don't render status bar if terminal is too narrow */
+		if (actual_width < 20)
+			return;
+
 		ox = D_x;
 		oy = D_y;
-		str = str ? str : "";
-		l = strlen(str);
-		if (l > D_width)
-			l = D_width;
+
+		/* ImmorTerm: Clear entire row first to prevent artifacts */
+		clear_width = (D_width > actual_width) ? D_width : actual_width;
+		D_y = -1;
 		GotoPos(0, 0);
 		SetRendition(&mchar_null);
+		ClearArea(0, 0, 0, clear_width - 1, clear_width - 1, 0, 0, 0);
+
+		/* Now render the status bar content */
+		str = str ? str : "";
+		l = strlen(str);
+		if (l > actual_width)
+			l = actual_width;
+		/* ImmorTerm: Force absolute cursor positioning (same as LASTLINE) */
+		D_y = -1;
+		GotoPos(0, 0);
 		l = PrePutWinMsg(str, 0, l);
 		if (!captionalways || (D_cvlist && !D_cvlist->c_next))
-			while (l++ < D_width)
+			while (l++ < actual_width)
 				PUTCHARLP(' ');
-		if (l < D_width)
-			ClearArea(l, 0, l, D_width - 1, D_width - 1, 0, 0, 0);
+		if (l < actual_width)
+			ClearArea(l, 0, l, actual_width - 1, actual_width - 1, 0, 0, 0);
 		if (ox != -1 && oy != -1)
 			GotoPos(ox, oy);
 		D_hstatus = (str != NULL);
@@ -2142,9 +2224,23 @@ void ChangeScrollRegion(int newtop, int newbot)
 		newtop = 0;
 	if (newbot == -1)
 		newbot = D_height - 1;
+
+	/*
+	 * ImmorTerm: Protect hardstatus line from being included in scroll region.
+	 * When hardstatus is on the last line (HSTATUS_LASTLINE), the scroll region
+	 * must never include that line. Otherwise, scrolling operations will push
+	 * the status bar into the scrollback buffer, causing visible duplication
+	 * when using ti@:te@ (alternate screen buffer disabled for VS Code native
+	 * scrolling). This is a defensive clamp that catches all code paths.
+	 */
+	if (D_has_hstatus == HSTATUS_LASTLINE && newbot >= D_height - 1)
+		newbot = D_height - 2;
+	if (D_has_hstatus == HSTATUS_FIRSTLINE && newtop <= 0)
+		newtop = 1;
+
 	if (D_CS == NULL) {
-		D_top = 0;
-		D_bot = D_height - 1;
+		D_top = SCROLL_TOP_DEFAULT();
+		D_bot = SCROLL_BOT_DEFAULT();
 		return;
 	}
 	if (D_top == newtop && D_bot == newbot)
