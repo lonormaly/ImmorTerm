@@ -44,4 +44,12 @@ fi
 rm -f "$LOGS_DIR/${SESSION}.log"
 
 # Kill the screen session
-screen -S "$SESSION" -X quit 2>/dev/null || true
+# Use configured screen binary
+SCREEN="${IMMORTERM_SCREEN_BINARY:-immorterm}"
+$SCREEN -S "$SESSION" -X quit 2>/dev/null || true
+
+# Also delete socket file directly (screen -X quit fails for "Remote or dead" sessions)
+SCREEN_DIR="${SCREENDIR:-$HOME/.screen}"
+for socket in "$SCREEN_DIR"/*."$SESSION"; do
+  [[ -S "$socket" ]] && rm -f "$socket"
+done

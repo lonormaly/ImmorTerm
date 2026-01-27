@@ -22,7 +22,7 @@ $SCREEN -ls 2>/dev/null | grep -oE "[0-9]+\.${PROJECT}-[^[:space:]]+" | while re
 done
 
 # Clear restore-terminals.json
-echo '{"artificialDelayMilliseconds": 200, "terminals": []}' | jq '.' > "$RESTORE_FILE"
+echo '{"artificialDelayMilliseconds": 0, "terminals": []}' | jq '.' > "$RESTORE_FILE"
 echo "Cleared restore-terminals.json"
 
 # Delete all log files

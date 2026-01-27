@@ -270,7 +270,12 @@ export function getTheme(name: string): Theme {
  * Note: %I = last I/O activity timestamp (ImmorTerm C code feature - zero polling!)
  */
 export function generateHardstatus(theme: Theme): string {
-  return `'%{= ${theme.fg};${theme.bg1}} %2\` %{= ${theme.fg};${theme.bg2}} / %{= ${theme.fg};${theme.bg3}} %t %=%{= ${theme.fgAccent};${theme.bg4}} Last Active: %{= ${theme.fg};${theme.bg5}} %I %{= ${theme.fg};${theme.bg6}} ImmorTerm %{-}'`;
+  // Note: Single quotes for screen hardstatus format string (shell quoting)
+  // %{-} at end pops rendition stack for clean state
+  // IMPORTANT: Space before %= is required! pad_expand() has a bug where if a rendition
+  // position is at the exact same buffer position as CHRPAD, it never gets adjusted
+  // during padding expansion, causing padding spaces to inherit wrong colors.
+  return `'%{= ${theme.fg};${theme.bg1}} %2\` %{= ${theme.fg};${theme.bg2}} / %{= ${theme.fg};${theme.bg3}} %t %{= ${theme.fg};${theme.bg3}} %=%{= ${theme.fgAccent};${theme.bg4}} Last Active: %{= ${theme.fg};${theme.bg5}} %I %{= ${theme.fg};${theme.bg6}} ImmorTerm %{-}'`;
 }
 
 /**

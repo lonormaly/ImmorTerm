@@ -39,7 +39,7 @@ for pending_file in "$PENDING_DIR"/*; do
   # Add to JSON with friendly name and windowId
   # Command includes display name so screen-auto uses it on restore
   tmp="$(mktemp)"
-  if jq --arg name "$DISPLAY_NAME" --arg wid "$WINDOW" --arg cmd "exec .vscode/terminals/screen-auto $WINDOW $DISPLAY_NAME" '
+  if jq --arg name "$DISPLAY_NAME" --arg wid "$WINDOW" --arg cmd "exec .vscode/terminals/screen-auto $WINDOW \"$DISPLAY_NAME\"" '
     .terminals = (.terminals // []) |
     .terminals += [{"splitTerminals":[{"name":$name,"windowId":$wid,"shellPath":"/bin/zsh","commands":[$cmd]}]}]
   ' "$JSON" > "$tmp"; then

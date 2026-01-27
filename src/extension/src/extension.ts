@@ -1253,6 +1253,31 @@ function setupPendingFileWatcher(
 
   const watcher = vscode.workspace.createFileSystemWatcher(pendingPattern);
 
+  // Processing queue to serialize pending file handling (prevents race conditions)
+  const pendingQueue: vscode.Uri[] = [];
+  let isProcessing = false;
+
+  // Process the next item in the queue
+  const processQueue = async (): Promise<void> => {
+    if (isProcessing || pendingQueue.length === 0) {
+      return;
+    }
+    isProcessing = true;
+
+    while (pendingQueue.length > 0) {
+      const uri = pendingQueue.shift()!;
+      await processPendingFile(uri);
+    }
+
+    isProcessing = false;
+  };
+
+  // Add to queue and trigger processing
+  const enqueueFile = (uri: vscode.Uri): void => {
+    pendingQueue.push(uri);
+    processQueue();
+  };
+
   // Process a pending file
   const processPendingFile = async (uri: vscode.Uri): Promise<void> => {
     const filePath = uri.fsPath;
@@ -1309,12 +1334,11 @@ function setupPendingFileWatcher(
     }
   };
 
-  // Watch for new files
-  watcher.onDidCreate(async (uri) => {
+  // Watch for new files - enqueue for serialized processing
+  watcher.onDidCreate((uri) => {
     logger.debug('Pending file created:', uri.fsPath);
-    // Small delay to ensure file is fully written
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    await processPendingFile(uri);
+    // Small delay to ensure file is fully written, then enqueue
+    setTimeout(() => enqueueFile(uri), 100);
   });
 
   // Also process any existing pending files on startup
@@ -1365,10 +1389,11 @@ export async function activate(
 
   // Initialize JSON utilities with the path to restore-terminals.json
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  logger.info('Workspace folder for JSON init:', workspaceFolder?.uri.fsPath || 'NONE');
   if (workspaceFolder) {
     const jsonPath = path.join(workspaceFolder.uri.fsPath, '.vscode', 'restore-terminals.json');
     initJsonUtils(jsonPath, (msg) => logger.info(msg));
-    logger.debug('Initialized JSON utilities with path:', jsonPath);
+    logger.info('Initialized JSON utilities with path:', jsonPath);
 
     // Initialize Claude sync if enabled
     if (shouldClaudeAutoResume()) {

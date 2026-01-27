@@ -202,9 +202,13 @@ export async function restoreTerminals(
 
   // Show the terminal panel if any terminals were restored
   if (result.restored > 0) {
+    // Delay to ensure VS Code has registered the terminals
+    await delay(200);
+
+    // Show the first terminal to open the panel
     const allTerminals = vscode.window.terminals;
     if (allTerminals.length > 0) {
-      allTerminals[0].show();
+      allTerminals[0].show(false); // false = take focus
       logger.info('Revealed terminal panel after restoration');
     }
   }
@@ -227,9 +231,9 @@ async function restoreSingleTerminal(
   scriptsPath: string,
   projectName: string
 ): Promise<RestorationDetail> {
-  const { windowId, name, screenSession } = terminalState;
+  const { windowId, name, screenSession, claudeSessionId } = terminalState;
 
-  logger.debug(`Restoring terminal: ${windowId} "${name}"`);
+  logger.debug(`Restoring terminal: ${windowId} "${name}"`, claudeSessionId ? `(Claude: ${claudeSessionId})` : '');
 
   // NOTE: Session existence and detach checks removed for performance.
   // The screen-auto script handles session management automatically:
@@ -238,10 +242,10 @@ async function restoreSingleTerminal(
   // - Handles dead/remote session cleanup
   // This saves ~100-200ms per terminal by avoiding redundant screen -ls calls.
 
-  // Determine if this name is modifiable (can be changed by Claude via OSC)
-  // - Modifiable (immorterm-N, ✳ prefix): Use grace period + OSC injection
-  // - Non-modifiable (custom names): VS Code's name property protects from OSC override
-  const modifiable = isModifiableName(name);
+  // Determine if this terminal is modifiable (can be changed by Claude via OSC)
+  // Primary check: claudeSessionId exists = Claude session = always modifiable
+  // Fallback: check name patterns (immorterm-N, ✳/✷/⠂ prefixes)
+  const modifiable = isModifiableName(name, claudeSessionId);
 
   // Create VS Code terminal that connects to the Screen session
   // The screen-auto script handles both creating new sessions and attaching to existing ones
@@ -251,6 +255,7 @@ async function restoreSingleTerminal(
     scriptsPath,
     cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     isRestoration: true,
+    claudeSessionId,
   });
 
   // Cancel any pending cleanup (in case terminal is being restored during grace period)
@@ -269,8 +274,10 @@ async function restoreSingleTerminal(
     logger.debug(`Non-modifiable name "${name}" protected by VS Code name property, skipping grace period`);
   }
 
-  // Update lastAttached timestamp
-  await manager.getStorage().updateTerminal(windowId, {
+  // Ensure terminal is in WorkspaceStorage (handles VS Code clearing workspaceState)
+  // JSON is source of truth; addTerminal handles both add (if missing) and update (if exists)
+  await manager.getStorage().addTerminal({
+    ...terminalState,
     lastAttached: Date.now(),
   });
 

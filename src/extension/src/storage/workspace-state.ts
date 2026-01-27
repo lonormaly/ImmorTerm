@@ -58,6 +58,7 @@ export class WorkspaceStorage {
   private projectName: string;
   private debounceTimer: NodeJS.Timeout | null = null;
   private pendingState: WorkspaceTerminalState | null = null;
+  private pendingResolvers: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
 
   constructor(context: vscode.ExtensionContext, projectName: string) {
     this.context = context;
@@ -90,28 +91,43 @@ export class WorkspaceStorage {
   /**
    * Sets the terminal state with debouncing
    * Rapid updates are coalesced to prevent excessive storage writes
+   * All concurrent callers are resolved when the debounce fires
    */
   async setState(state: WorkspaceTerminalState): Promise<void> {
     this.pendingState = state;
 
-    // Clear any existing debounce timer
+    // Clear any existing debounce timer (state will be coalesced)
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
     }
 
-    // Set up new debounce timer
+    // Return a promise that will be resolved when debounce fires
     return new Promise((resolve, reject) => {
+      // Track this resolver so it can be resolved when timer fires
+      this.pendingResolvers.push({ resolve, reject });
+
+      // Set up new debounce timer
       this.debounceTimer = setTimeout(async () => {
+        // Capture and clear resolvers before async work
+        const resolvers = this.pendingResolvers;
+        this.pendingResolvers = [];
+
         try {
           if (this.pendingState) {
             await this.context.workspaceState.update(STORAGE_KEY, this.pendingState);
             logger.debug('Workspace state saved:', this.pendingState.terminals.length, 'terminals');
             this.pendingState = null;
           }
-          resolve();
+          // Resolve ALL pending promises
+          for (const { resolve: res } of resolvers) {
+            res();
+          }
         } catch (error) {
           logger.error('Failed to save workspace state:', error);
-          reject(error);
+          // Reject ALL pending promises
+          for (const { reject: rej } of resolvers) {
+            rej(error as Error);
+          }
         }
       }, DEBOUNCE_DELAY);
     });
@@ -261,10 +277,19 @@ export class WorkspaceStorage {
       this.debounceTimer = null;
     }
 
+    // Capture and clear pending resolvers
+    const resolvers = this.pendingResolvers;
+    this.pendingResolvers = [];
+
     if (this.pendingState) {
       await this.context.workspaceState.update(STORAGE_KEY, this.pendingState);
       logger.debug('Flushed pending workspace state');
       this.pendingState = null;
+    }
+
+    // Resolve all pending promises
+    for (const { resolve } of resolvers) {
+      resolve();
     }
   }
 

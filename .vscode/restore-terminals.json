@@ -1,0 +1,16 @@
+{
+  "artificialDelayMilliseconds": 0,
+  "terminals": [
+    {
+      "splitTerminals": [
+        {
+          "windowId": "70370-JHB8aJ2G",
+          "name": "immorterm-5",
+          "commands": [
+            "exec .vscode/terminals/screen-auto 70370-JHB8aJ2G \"immorterm-5\""
+          ]
+        }
+      ]
+    }
+  ]
+}

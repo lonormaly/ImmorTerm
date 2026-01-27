@@ -390,7 +390,14 @@ export function removeTerminalFromJson(windowId: string): boolean {
  * Returns array of {windowId, name, claudeSessionId} for restoration
  */
 export function getAllTerminalsFromJson(): Array<{ windowId: string; name: string; claudeSessionId?: string; theme?: string }> {
-    if (!fs.existsSync(jsonPath)) return [];
+    if (!jsonPath) {
+        logFn('ERROR: getAllTerminalsFromJson called before initJsonUtils - jsonPath not set');
+        return [];
+    }
+    if (!fs.existsSync(jsonPath)) {
+        logFn(`getAllTerminalsFromJson: JSON file not found at ${jsonPath}`);
+        return [];
+    }
 
     try {
         const config = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
@@ -422,6 +429,11 @@ export function getAllTerminalsFromJson(): Array<{ windowId: string; name: strin
  * Resets the file to an empty terminals array
  */
 export function clearAllTerminalsFromJson(): boolean {
+    if (!jsonPath) {
+        logFn('ERROR: clearAllTerminalsFromJson called before initJsonUtils - jsonPath not set');
+        return false;
+    }
+
     try {
         // Create empty config structure
         const config = {
@@ -431,10 +443,10 @@ export function clearAllTerminalsFromJson(): boolean {
 
         // Write empty config to file
         fs.writeFileSync(jsonPath, JSON.stringify(config, null, 2) + '\n');
-        logFn('Cleared all terminals from restore-terminals.json');
+        logFn(`Cleared all terminals from restore-terminals.json at: ${jsonPath}`);
         return true;
     } catch (error) {
-        logFn(`Error clearing terminals from JSON: ${error}`);
+        logFn(`Error clearing terminals from JSON (path: ${jsonPath}): ${error}`);
         return false;
     }
 }

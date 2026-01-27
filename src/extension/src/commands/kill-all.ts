@@ -93,8 +93,12 @@ export async function killAllScreenSessions(
   logger.debug(`Cleared ${result.entriesCleared} entries from storage`);
 
   // Clear restore-terminals.json
-  clearAllTerminalsFromJson();
-  logger.debug('Cleared restore-terminals.json');
+  const jsonCleared = clearAllTerminalsFromJson();
+  if (jsonCleared) {
+    logger.debug('Cleared restore-terminals.json');
+  } else {
+    logger.warn('Failed to clear restore-terminals.json - check logs for details');
+  }
 
   // Delete all log files for this project
   try {

@@ -162,97 +162,181 @@ export function findClaudeSessionIdForWindow(windowId: string): string | null {
         // eslint-disable-next-line no-control-regex
         const logContent = rawLogContent.replace(/\x1b\[[0-9;]*m/g, '');
 
-        const historyContent = execSync(`grep "${workspacePath}" "${historyPath}" | tail -1000`, {
-            encoding: 'utf8',
-            timeout: 10000
-        });
-
-        // Parse history entries: sessionId -> list of display messages
-        const sessionMessages = new Map<string, string[]>();
-
-        for (const line of historyContent.split('\n')) {
-            if (!line.trim()) continue;
+        // Helper to get Claude's responses from session file
+        const getClaudeResponses = (sessionId: string, projectPath: string): string[] => {
+            const responses: string[] = [];
             try {
-                const entry = JSON.parse(line);
-                if (entry.sessionId && entry.display &&
-                    entry.display.length > 15 &&
-                    !entry.display.includes('/resume') &&
-                    !entry.display.includes('/status') &&
-                    entry.display !== 'go on') {
+                // Convert project path to folder name: /Users/foo → -Users-foo
+                const projectFolder = projectPath.replace(/\//g, '-');
+                const sessionFile = path.join(os.homedir(), '.claude', 'projects', projectFolder, `${sessionId}.jsonl`);
 
-                    if (!sessionMessages.has(entry.sessionId)) {
-                        sessionMessages.set(entry.sessionId, []);
+                if (!fs.existsSync(sessionFile)) return responses;
+
+                // Read first 50 lines to get early responses (most distinctive)
+                const content = execSync(`head -50 "${sessionFile}"`, { encoding: 'utf8', timeout: 5000 });
+
+                for (const line of content.split('\n')) {
+                    if (!line.trim()) continue;
+                    try {
+                        const entry = JSON.parse(line);
+                        // Session files have: entry.message.content[] array with {type, text}
+                        if (entry.type === 'assistant' && entry.message?.content) {
+                            for (const block of entry.message.content) {
+                                if (block.type === 'text' && block.text && block.text.length > 5) {
+                                    responses.push(block.text.substring(0, 200));
+                                    if (responses.length >= 5) return responses;
+                                }
+                            }
+                        }
+                    } catch {
+                        // Skip invalid JSON
                     }
-                    sessionMessages.get(entry.sessionId)!.push(entry.display);
                 }
             } catch {
-                // Skip invalid JSON
+                // Session file not found or error reading
             }
-        }
+            return responses;
+        };
 
-        if (sessionMessages.size === 0) {
-            logFn(`[claude-sync] No session messages found in history`);
-            return null;
-        }
+        // Helper to parse history content into session messages map
+        // Also tracks project path for each session to lookup Claude responses
+        const sessionProjects = new Map<string, string>(); // sessionId → project path
 
-        // Score matches for each session using word-level matching
-        let bestSession = '';
-        let bestScore = 0;
-        let bestMatchInfo = '';
+        const parseHistory = (content: string): Map<string, string[]> => {
+            const sessions = new Map<string, string[]>();
+            for (const line of content.split('\n')) {
+                if (!line.trim()) continue;
+                try {
+                    const entry = JSON.parse(line);
+                    if (entry.sessionId && entry.display &&
+                        entry.display.length > 10 &&
+                        !entry.display.includes('/resume') &&
+                        !entry.display.includes('/status') &&
+                        entry.display !== 'go on') {
 
-        for (const [sessionId, messages] of sessionMessages) {
-            let wordMatchCount = 0;
-            let messageMatchCount = 0;
-            const totalMessages = messages.length;
+                        if (!sessions.has(entry.sessionId)) {
+                            sessions.set(entry.sessionId, []);
+                        }
+                        sessions.get(entry.sessionId)!.push(entry.display);
 
-            // Extract unique multi-word phrases (3+ words) from RECENT messages
-            // Use slice(-N) to get most recent messages (history is chronological)
+                        // Track project path for this session
+                        if (entry.project && !sessionProjects.has(entry.sessionId)) {
+                            sessionProjects.set(entry.sessionId, entry.project);
+                        }
+                    }
+                } catch {
+                    // Skip invalid JSON
+                }
+            }
+            return sessions;
+        };
+
+        // Helper to score sessions against log content
+        // Additive scoring: exact matches + phrase matches, no cap
+        const scoreSession = (messages: string[]): { score: number; info: string } => {
+            let exactMatches = 0;
+            let phraseMatches = 0;
+
+            // Check exact matches - full message found in log (lowered threshold to 5 chars)
+            for (const msg of messages.slice(-20)) {
+                if (msg.length >= 5 && logContent.includes(msg)) {
+                    exactMatches++;
+                }
+            }
+
+            // Check phrase matches - 3-word phrases (lowered threshold to 10 chars)
             const searchTerms = messages
-                .slice(-20) // Use last 20 messages (most recent)
-                .filter(m => m.length > 15)
+                .slice(-20)
+                .filter(m => m.length >= 10)
                 .flatMap(m => {
-                    // Extract 3-5 word phrases for more unique matching
-                    const words = m.split(/\s+/).filter(w => w.length > 3);
+                    const words = m.split(/\s+/).filter(w => w.length > 2);
                     const phrases: string[] = [];
                     for (let i = 0; i < words.length - 2; i++) {
                         phrases.push(words.slice(i, i + 3).join(' '));
                     }
-                    return phrases.slice(0, 5); // Max 5 phrases per message
+                    return phrases.slice(0, 5);
                 })
-                .slice(0, 20); // Max 20 search terms total
+                .slice(0, 30);
 
             for (const term of searchTerms) {
                 if (logContent.includes(term)) {
-                    wordMatchCount++;
+                    phraseMatches++;
                 }
             }
 
-            // Also check full message matches (first 60 chars) from RECENT messages
-            for (const msg of messages.filter(m => m.length > 20).slice(-10)) {
-                if (logContent.includes(msg.substring(0, 60))) {
-                    messageMatchCount++;
-                }
-            }
+            // Additive scoring - no cap, higher = better match
+            const score = (exactMatches * 0.15) + (phraseMatches * 0.03);
 
-            // Calculate confidence score:
-            // - Sessions with few messages: word matches are more important
-            // - Sessions with many messages: need higher match ratio
-            const matchRatio = totalMessages > 0 ? messageMatchCount / Math.min(totalMessages, 10) : 0;
-            const wordScore = Math.min(wordMatchCount / 5, 1); // Cap at 5 word matches = 1.0
+            return {
+                score,
+                info: `exact=${exactMatches}, phrases=${phraseMatches}`
+            };
+        };
 
-            // Final score: weighted combination
-            const score = (matchRatio * 0.6) + (wordScore * 0.4);
+        // Try workspace-filtered search first
+        let historyContent = '';
+        try {
+            historyContent = execSync(`grep "${workspacePath}" "${historyPath}" | tail -1000`, {
+                encoding: 'utf8',
+                timeout: 10000
+            });
+        } catch {
+            // grep returns error if no matches
+        }
 
-            if (score > bestScore || (score === bestScore && wordMatchCount > 0)) {
+        let sessionMessages = parseHistory(historyContent);
+        let bestSession = '';
+        let bestScore = 0;
+        let bestMatchInfo = '';
+
+        // Score workspace-filtered sessions (user messages + Claude responses)
+        for (const [sessionId, userMessages] of sessionMessages) {
+            const projectPath = sessionProjects.get(sessionId);
+            const claudeResponses = projectPath ? getClaudeResponses(sessionId, projectPath) : [];
+            const allMessages = [...userMessages, ...claudeResponses];
+            const { score, info } = scoreSession(allMessages);
+            if (score > bestScore) {
                 bestScore = score;
                 bestSession = sessionId;
-                bestMatchInfo = `msgs=${messageMatchCount}/${totalMessages}, words=${wordMatchCount}, ratio=${matchRatio.toFixed(2)}`;
+                bestMatchInfo = info;
             }
         }
 
-        // Accept if:
-        // - Score >= 0.1 (at least some matches)
-        // - OR if there's only 1 session with any matches at all
+        // If no confident match from workspace filter, also try recent history
+        // Claude may record a different project path if started from different cwd
+        if (bestScore < 0.1) {
+            logFn(`[claude-sync] Workspace filter score too low (${bestScore.toFixed(2)}), trying recent history`);
+            try {
+                const recentHistory = execSync(`tail -500 "${historyPath}"`, {
+                    encoding: 'utf8',
+                    timeout: 10000
+                });
+                const recentSessions = parseHistory(recentHistory);
+
+                for (const [sessionId, userMessages] of recentSessions) {
+                    const projectPath = sessionProjects.get(sessionId);
+                    const claudeResponses = projectPath ? getClaudeResponses(sessionId, projectPath) : [];
+                    const allMessages = [...userMessages, ...claudeResponses];
+                    const { score, info } = scoreSession(allMessages);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestSession = sessionId;
+                        bestMatchInfo = info;
+                        logFn(`[claude-sync] Found better match in recent history: ${sessionId.slice(0, 8)}... (score=${score.toFixed(2)})`);
+                    }
+                }
+            } catch {
+                // Ignore
+            }
+        }
+
+        if (sessionMessages.size === 0 && bestScore === 0) {
+            logFn(`[claude-sync] No session messages found in history`);
+            return null;
+        }
+
+        // Accept if score >= 0.1 (at least 1 exact match or 4+ phrase matches)
+        // With additive scoring: exact=0.15, phrase=0.03
         const hasConfidentMatch = bestScore >= 0.1 && bestSession;
 
         if (hasConfidentMatch) {

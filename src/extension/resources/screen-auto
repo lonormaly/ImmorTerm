@@ -51,6 +51,20 @@ mkdir -p "$PROJECT_DIR/.vscode" "$LOGS_DIR" "$PENDING_DIR"
 DEBUG_LOG="$PROJECT_DIR/.vscode/terminals/logs/auto-resume.log"
 debug() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$DEBUG_LOG"; }
 
+# Dump filtered log to VS Code scrollback buffer
+# Filters: escape sequences, zsh PROMPT_SP markers, blank lines
+dump_filtered_log() {
+  local logfile="$1"
+  local lines="${2:-20000}"
+  echo ""
+  tail -n "$lines" "$logfile" \
+    | tr '\r' '\n' \
+    | sed -E 's/\x1b\[[0-9;]*[HJK]//g' \
+    | perl -ne 'my $s = $_; $s =~ s/\e\[[0-9;?]*[a-zA-Z]//g; $s =~ s/\e\][^\a]*\a//g; print unless $s =~ /^%?\s*$/' \
+    | sed -E 's/^[[:space:]]{20,}(.)/\1/' \
+    | grep -v '^[[:space:]]*$'
+}
+
 # Check if extension pre-generated identity (env vars set by ImmorTermProfileProvider)
 # This prevents duplicates - extension already created the pending file
 if [[ -n "${IMMORTERM_WINDOW_ID:-}" ]] && [[ -n "${IMMORTERM_DISPLAY_NAME:-}" ]]; then
@@ -101,19 +115,9 @@ export SCREEN_WINDOW_ID="$WINDOW"
 export SCREEN_WINDOW_NAME="$DISPLAY_NAME"
 export IMMORTERM_BASE_NAME="$DISPLAY_NAME"  # Immutable base name for title construction
 
-# Print log history before attaching (so it appears in native scroll buffer)
-# Limit to last 20000 lines to prevent VS Code crashes on large logs
-# Minimal filtering: only strip cursor home (H) and screen clear (J) sequences
-# Terminal naturally handles everything else (colors, backspaces, etc.)
-LOG_LINES=20000
-# Dump log history to VS Code's native scroll buffer
-if [[ -f "$LOGFILE" ]]; then
-  # Print newline first to avoid zsh's PROMPT_SP marker (%)
-  echo ""
-  # Minimal filter: only remove cursor home (H) and screen clear (J) sequences
-  # Keep everything else including backspaces (terminal handles them correctly)
-  tail -n "$LOG_LINES" "$LOGFILE" | sed -E 's/\x1b\[[0-9;]*[HJ]//g'
-fi
+# Log dump moved to NEW SESSION block only (see below).
+# For reattachment to existing sessions, screen's own scrollback is sufficient.
+# This prevents duplication: VS Code scrollback + screen scrollback showing same content.
 
 # ============================================================================
 # SESSION MANAGEMENT
@@ -191,6 +195,7 @@ cleanup_dead_sessions() {
 # Main session logic
 SESSION_IS_NEW=false
 FULL_SESSION_ID=""
+SKIP_CLEAR=false  # Don't clear screen for Claude sessions on reattachment
 
 # First, clean up any dead sessions with our name
 cleanup_dead_sessions "$SESSION"
@@ -202,6 +207,25 @@ if [[ -z "$FULL_SESSION_ID" ]]; then
   # No healthy session found - create a new one
   SESSION_IS_NEW=true
   debug "SESSION_IS_NEW=true for $SESSION (creating new screen)"
+
+  # Check if this terminal has a Claude session to auto-resume
+  # If so, skip log dump - Claude's TUI output is full of escape sequences
+  # and --resume will restore conversation context anyway
+  WILL_AUTO_RESUME=""
+  if [[ -n "${1:-}" ]]; then
+    WILL_AUTO_RESUME=$(jq -r --arg wid "$WINDOW" \
+      '.terminals[]?.splitTerminals[]? | select(.windowId == $wid) | .claudeSessionId // empty' \
+      "$JSON" 2>/dev/null)
+  fi
+
+  # Dump log history to VS Code's native scroll buffer (NEW sessions only)
+  # Skip for Claude sessions - their TUI output doesn't render well and --resume restores context
+  if [[ -z "$WILL_AUTO_RESUME" ]] && [[ -f "$LOGFILE" ]]; then
+    debug "Dumping log history for non-Claude session"
+    dump_filtered_log "$LOGFILE"
+  elif [[ -n "$WILL_AUTO_RESUME" ]]; then
+    debug "Skipping log dump - Claude session will auto-resume"
+  fi
 
   # Create new detached session with large scrollback buffer (50k lines)
   # Shell will inherit SCREEN_PROJECT_DIR from this parent process
@@ -228,28 +252,33 @@ if [[ -z "$FULL_SESSION_ID" ]]; then
   # This is required because backticks query screen's internal environment table, NOT shell exports
   "$SCREEN" -S "$FULL_SESSION_ID" -X setenv IMMORTERM_SCREEN_BINARY "$SCREEN"
 
-  # Note: shell-init.zsh is sourced automatically by shell-wrapper.zsh (set in screenrc)
+  # Note: shell-init.zsh is sourced automatically via ZDOTDIR/.zshrc (set in screenrc)
 
-  # If this is a RESTORED terminal (has windowId arg) and session was lost (laptop restart),
-  # check if there's a Claude session to auto-resume
-  if [[ -n "${1:-}" ]]; then
-    CLAUDE_SESSION_ID=$(jq -r --arg wid "$WINDOW" \
-      '.terminals[]?.splitTerminals[]? | select(.windowId == $wid) | .claudeSessionId // empty' \
-      "$JSON" 2>/dev/null)
-    debug "Checking auto-resume: window=$WINDOW, claudeSessionId=${CLAUDE_SESSION_ID:-<none>}"
-
-    if [[ -n "$CLAUDE_SESSION_ID" ]]; then
-      debug "AUTO-RESUME: sending 'claude --resume $CLAUDE_SESSION_ID' to $FULL_SESSION_ID"
-      # Auto-resume Claude session in this screen
-      "$SCREEN" -S "$FULL_SESSION_ID" -X stuff "claude --resume $CLAUDE_SESSION_ID\n"
-    else
-      debug "No claudeSessionId found for $WINDOW, skipping auto-resume"
-    fi
+  # If this terminal has a Claude session to auto-resume (already checked above)
+  if [[ -n "$WILL_AUTO_RESUME" ]]; then
+    debug "AUTO-RESUME: sending 'claude --resume $WILL_AUTO_RESUME' to $FULL_SESSION_ID"
+    # Auto-resume Claude session in this screen
+    "$SCREEN" -S "$FULL_SESSION_ID" -X stuff "claude --resume $WILL_AUTO_RESUME\n"
   fi
 else
   debug "SESSION_IS_NEW=false for $SESSION (attaching to existing: $FULL_SESSION_ID)"
-  # Note: shell-init.zsh is sourced automatically by shell-wrapper.zsh (set in screenrc)
-  # No need to inject commands - the wrapper handles it for all sessions
+  # Note: shell-init.zsh is sourced automatically via ZDOTDIR/.zshrc (set in screenrc)
+  # No need to inject commands - ZDOTDIR handles it for all sessions
+
+  # For reattachment: check if this is an interactive session (has claudeSessionId)
+  # Interactive sessions (Claude) redraw themselves - dumping log causes duplication
+  # Non-interactive sessions need log dump to restore scrollback context
+  CLAUDE_SESSION_ID=$(jq -r --arg wid "$WINDOW" \
+    '.terminals[]?.splitTerminals[]? | select(.windowId == $wid) | .claudeSessionId // empty' \
+    "$JSON" 2>/dev/null)
+
+  if [[ -z "$CLAUDE_SESSION_ID" ]] && [[ -f "$LOGFILE" ]]; then
+    debug "REATTACH non-interactive: dumping log for $WINDOW"
+    dump_filtered_log "$LOGFILE"
+  else
+    debug "REATTACH interactive (Claude): skipping log dump and clear for $WINDOW"
+    SKIP_CLEAR=true  # Claude sessions need their display intact - they don't auto-redraw
+  fi
 
   # Ensure environment variable is set for backticks (may have been lost on screen restart)
   "$SCREEN" -S "$FULL_SESSION_ID" -X setenv IMMORTERM_SCREEN_BINARY "$SCREEN"
@@ -263,9 +292,18 @@ printf '\033]0;%s\007' "$DISPLAY_NAME"
 # Disable screen's internal scrollback dump (use log file approach instead)
 "$SCREEN" -S "$FULL_SESSION_ID" -X scrollback_dump off
 
-# Clear screen's display to prevent duplicate content on attach
-# (our log dump above already provided history in VS Code's scroll buffer)
-"$SCREEN" -S "$FULL_SESSION_ID" -X clear
+# Clear screen's scrollback buffer AND display to prevent duplicate content
+# The scrollback accumulates previous renders (Claude Code redraws on resize)
+# BUT: Skip for Claude sessions - they don't auto-redraw and clearing blanks the display
+if [[ "$SKIP_CLEAR" != "true" ]]; then
+  # Reset scrollback to 0 then restore to clear it completely
+  "$SCREEN" -S "$FULL_SESSION_ID" -X scrollback 0
+  "$SCREEN" -S "$FULL_SESSION_ID" -X scrollback 50000
+  "$SCREEN" -S "$FULL_SESSION_ID" -X clear
+  debug "Cleared scrollback buffer for $FULL_SESSION_ID"
+else
+  debug "Skipped clear for Claude session $FULL_SESSION_ID"
+fi
 
 # Attach to the session using full session ID to avoid ambiguity
 # Use -D -RR to forcefully detach any stale attachments (e.g., dead displays from crashed VS Code)

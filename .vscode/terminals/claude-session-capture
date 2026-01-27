@@ -14,6 +14,9 @@ echo ""
 # Get project prefix for session matching
 project_lower=$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]')
 
+# Use configured screen binary (immorterm by default)
+SCREEN="${IMMORTERM_SCREEN_BINARY:-immorterm}"
+
 # Get all windowIds from JSON
 window_ids=$(jq -r '.terminals[]?.splitTerminals[]?.windowId // empty' "$JSON" 2>/dev/null || true)
 
@@ -33,7 +36,7 @@ while IFS= read -r window_id; do
   echo -n "[$name] ($window_id): "
 
   # Check if screen session exists and is attached
-  screen_info=$(screen -ls 2>/dev/null | grep "$session_name" | grep "Attached" | head -1 || true)
+  screen_info=$($SCREEN -ls 2>/dev/null | grep "$session_name" | grep "Attached" | head -1 || true)
   if [[ -z "$screen_info" ]]; then
     echo "screen not attached"
     continue
@@ -76,7 +79,7 @@ while IFS= read -r window_id; do
   log_size_before=$(wc -c < "$log_file" 2>/dev/null || echo "0")
 
   # Send /status command to the screen session
-  screen -S "$full_session" -X stuff "/status\n"
+  $SCREEN -S "$full_session" -X stuff "/status\n"
 
   # Wait for output to be logged
   sleep 3

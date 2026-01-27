@@ -35,20 +35,34 @@ export interface CreateTerminalOptions {
   cwd?: string;
   /** Whether this is a restoration (vs new terminal creation) */
   isRestoration?: boolean;
+  /** Claude session ID if this terminal has an active Claude session */
+  claudeSessionId?: string;
 }
 
 /**
  * Checks if a terminal name is "modifiable" (can be changed by Claude via OSC)
  *
- * Modifiable names:
- * - Names starting with ✳ (Claude session indicator)
+ * Modifiable terminals:
+ * - Terminals with an active Claude session (claudeSessionId exists)
+ * - Names starting with Claude session indicators (✳, ✷, ⠂, *)
  * - Default pattern: immorterm-{N} (e.g., "immorterm-3")
  *
  * Non-modifiable names (user's custom names) should be protected from OSC override
+ *
+ * @param name The terminal display name
+ * @param claudeSessionId Optional Claude session ID from JSON
  */
-export function isModifiableName(name: string): boolean {
-  // Names starting with ✳ are Claude sessions - always modifiable
-  if (name.startsWith('✳') || name.startsWith('*')) {
+export function isModifiableName(name: string, claudeSessionId?: string): boolean {
+  // Primary check: If terminal has a Claude session, it's always modifiable
+  // This is the most reliable indicator - doesn't depend on character encoding
+  if (claudeSessionId) {
+    return true;
+  }
+
+  // Fallback: Check for Claude session indicator prefixes
+  // Various star/dot characters used by Claude to indicate session state
+  const claudePrefixes = ['✳', '✷', '⠂', '*'];
+  if (claudePrefixes.some(prefix => name.startsWith(prefix))) {
     return true;
   }
 
@@ -83,7 +97,7 @@ export function isModifiableName(name: string): boolean {
  * @returns The created VS Code Terminal instance
  */
 export function createTerminalWithScreen(options: CreateTerminalOptions): vscode.Terminal {
-  const { name, windowId, scriptsPath, cwd, isRestoration = false } = options;
+  const { name, windowId, scriptsPath, cwd, isRestoration = false, claudeSessionId } = options;
 
   // Graceful degradation: if Screen is not available, create standard terminal
   if (!screenAvailableFlag) {
@@ -114,10 +128,10 @@ export function createTerminalWithScreen(options: CreateTerminalOptions): vscode
   // Get configured screen binary
   const screenBinary = vscode.workspace.getConfiguration('immorterm').get<string>('screenBinary', 'immorterm');
 
-  // Determine if this name is "modifiable" (can be changed by Claude via OSC)
-  // - Modifiable: names starting with ✳ or default pattern (immorterm-N)
-  // - Non-modifiable: custom user names that should be protected from OSC override
-  const modifiable = isModifiableName(name);
+  // Determine if this terminal is "modifiable" (can be changed by Claude via OSC)
+  // Primary check: claudeSessionId exists = Claude session = modifiable
+  // Fallback: check for Claude indicator prefixes or default pattern
+  const modifiable = isModifiableName(name, claudeSessionId);
 
   logger.debug('Creating terminal with Screen:', {
     name,
@@ -125,6 +139,7 @@ export function createTerminalWithScreen(options: CreateTerminalOptions): vscode
     shellPath,
     shellArgs,
     isRestoration,
+    claudeSessionId: claudeSessionId ? 'exists' : 'none',
     modifiable,
   });
 

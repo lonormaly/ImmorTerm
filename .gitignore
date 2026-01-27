@@ -1,0 +1,29 @@
+# Node modules
+node_modules/
+out/
+
+# Build output
+*.js
+*.js.map
+!src/templates/**/*.js
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Test files
+.vscode/terminals/logs/
+.vscode/terminals/pending/
+*.vsix
+.claude/settings.local.json
+
+# Claude Code local settings (contains secrets)
+.claude/settings.local.json

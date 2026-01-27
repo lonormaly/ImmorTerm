@@ -16,7 +16,7 @@ echo "Cleaning up all screen sessions for project: $PROJECT"
 
 # FIRST: Clear restore-terminals.json (prevents VS Code from restoring old terminals)
 if [[ -f "$RESTORE_FILE" ]]; then
-  echo '{ "artificialDelayMilliseconds": 200, "terminals": [] }' > "$RESTORE_FILE"
+  echo '{ "artificialDelayMilliseconds": 0, "terminals": [] }' > "$RESTORE_FILE"
   echo "Cleared restore-terminals.json"
 fi
 

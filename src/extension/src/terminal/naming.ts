@@ -33,6 +33,13 @@ function getScreenBinary(): string {
 const terminalLastNames = new WeakMap<vscode.Terminal, string>();
 
 /**
+ * Pending names that have been generated but not yet added to storage.
+ * This prevents race conditions when creating multiple terminals quickly.
+ * Names are auto-cleared after 2 seconds (when storage should have caught up).
+ */
+const pendingNames = new Set<string>();
+
+/**
  * Generates a date prefix for screen titles
  * Format: DD/MM-HH:MM
  *
@@ -95,6 +102,7 @@ export function generateNextName(
   // Pattern matches "immorterm-N" format (unified across all projects)
   const pattern = /^immorterm-(\d+)$/i;
 
+  // Check storage for existing terminal names
   for (const terminal of terminals) {
     const match = terminal.name.match(pattern);
     if (match) {
@@ -105,9 +113,21 @@ export function generateNextName(
     }
   }
 
-  // Also check currently open terminals (they might not be in storage yet)
+  // Check currently open terminals (they might not be in storage yet)
   for (const terminal of vscode.window.terminals) {
     const match = terminal.name.match(pattern);
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (n > maxN) {
+        maxN = n;
+      }
+    }
+  }
+
+  // Check pending names (recently generated, not yet in storage)
+  // This prevents duplicates when creating terminals faster than storage updates
+  for (const name of pendingNames) {
+    const match = name.match(pattern);
     if (match) {
       const n = parseInt(match[1], 10);
       if (n > maxN) {
@@ -120,9 +140,19 @@ export function generateNextName(
 
   // Apply naming pattern (default: "immorterm-${n}")
   const namingPattern = getNamingPattern();
-  return namingPattern
+  const newName = namingPattern
     .replace('${project}', projectName) // Kept for custom patterns that still want project name
     .replace('${n}', String(nextN));
+
+  // Add to pending names to prevent race conditions
+  pendingNames.add(newName);
+
+  // Auto-clear after storage catches up (~2 seconds)
+  setTimeout(() => {
+    pendingNames.delete(newName);
+  }, 2000);
+
+  return newName;
 }
 
 /**

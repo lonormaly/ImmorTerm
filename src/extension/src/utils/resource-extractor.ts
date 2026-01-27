@@ -24,7 +24,6 @@ const BUNDLED_SCRIPTS = [
   'screen-reconcile',
   'kill-screens',
   'log-cleanup',
-  'shell-wrapper.zsh',
   // Claude session tracking (for resume after restart)
   'claude-session-capture',
   'claude-session-map',
@@ -62,13 +61,12 @@ export interface ExtractionResult {
  * ├── screen-forget-all        (executable - kill all sessions)
  * ├── screen-reconcile         (executable - reconcile pending terminals)
  * ├── kill-screens             (executable - kill all project screens)
- * ├── shell-wrapper.zsh        (executable - shell wrapper for ZDOTDIR)
  * ├── claude-session-capture   (executable - capture Claude session IDs)
  * ├── claude-session-map       (executable - interactive session mapper)
  * ├── claude-session-sync      (executable - background session scanner)
  * ├── claude-session-tracker   (executable - real-time session tracking)
  * ├── screenrc                 (screen configuration)
- * ├── .zshrc                   (custom zshrc that sources shell-init.zsh)
+ * ├── .zshrc                   (custom zshrc via ZDOTDIR, sources shell-init.zsh)
  * ├── shell-init.zsh           (shell initialization with title updates)
  * ├── logs/                    (directory for log files)
  * └── pending/                 (directory for pending terminal registrations)
