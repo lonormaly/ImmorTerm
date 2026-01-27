@@ -482,18 +482,23 @@ __WinMsgEscEsc_time(WinMsgBufContext *wmbc, struct tm *tm, WinMsgEsc esc)
             wmbc_printf(wmbc, esc.flags.zero ? "%02d:%02d" : "%2d:%02d", tm->tm_hour, tm->tm_min);
 }
 
-/* ImmorTerm: Last I/O activity time (%I escape) */
+/* ImmorTerm: Last I/O activity time (%I escape)
+ * Format: DD/MM/YY HH:MM (ISO-like, internationally common) */
 static void
 __WinMsgEscEsc_LastActivity(WinMsgBufContext *wmbc, Window *win)
 {
 	if (win && win->w_last_activity > 0) {
 		struct tm *activity_tm = localtime(&win->w_last_activity);
 		if (activity_tm) {
-			wmbc_printf(wmbc, "%02d:%02d", activity_tm->tm_hour, activity_tm->tm_min);
+			char timebuf[32];
+			/* Use explicit DD/MM/YY format for international compatibility
+			 * (macOS %x doesn't always respect locale settings) */
+			strftime(timebuf, sizeof(timebuf), "%d/%m/%y %H:%M", activity_tm);
+			wmbc_printf(wmbc, "%s", timebuf);
 			return;
 		}
 	}
-	wmbc_printf(wmbc, "--:--");
+	wmbc_printf(wmbc, "--/-- --:--");
 }
 
 winmsg_esc_ex(WinNum, Window *win)
