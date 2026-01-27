@@ -1651,6 +1651,31 @@ void ShowHStatus(char *str)
 		return;
 	}
 
+	/* Guard against rendering to stale coordinates during rapid resize.
+	 * During continuous window resize, the terminal size may have changed
+	 * since we last queried it. If we render at D_height-1 but the terminal
+	 * is now smaller, the cursor position may wrap or clip, causing the
+	 * status bar to appear at the wrong row (often row 0). Skip rendering
+	 * if size mismatch detected - next SIGWINCH will trigger proper redisplay.
+	 *
+	 * ImmorTerm enhancement: Flush output buffer before checking to ensure
+	 * any pending terminal operations complete, reducing race window.
+	 */
+	if (D_has_hstatus == HSTATUS_LASTLINE || D_has_hstatus == HSTATUS_FIRSTLINE) {
+		struct winsize ws;
+		/* Flush to reduce race window between check and render */
+		Flush(3);
+		if (ioctl(D_userfd, TIOCGWINSZ, &ws) == 0) {
+			if (ws.ws_row != D_height || ws.ws_col != D_width) {
+				return;  /* Size changed, defer to next resize event */
+			}
+			/* Additional sanity check: ensure target row exists */
+			if (D_has_hstatus == HSTATUS_LASTLINE && D_height - 1 >= ws.ws_row) {
+				return;  /* Target row beyond terminal bounds */
+			}
+		}
+	}
+
 	if (D_HS && D_has_hstatus == HSTATUS_HS) {
 		if (!D_hstatus && (str == NULL || *str == 0))
 			return;
@@ -1676,6 +1701,14 @@ void ShowHStatus(char *str)
 		l = strlen(str);
 		if (l > D_width)
 			l = D_width;
+		/* ImmorTerm: Force absolute cursor positioning for status bar.
+		 * Setting D_y = -1 ensures GotoPos sends an explicit positioning
+		 * command rather than returning early when D_x/D_y happen to match
+		 * the target. This prevents stray characters at column 0 when the
+		 * terminal's actual cursor position desyncs from our tracking
+		 * (e.g., during resize or after OSC title changes).
+		 */
+		D_y = -1;
 		GotoPos(0, D_height - 1);
 		SetRendition(&mchar_null);
 		l = PrePutWinMsg(str, 0, l);
@@ -1695,6 +1728,8 @@ void ShowHStatus(char *str)
 		l = strlen(str);
 		if (l > D_width)
 			l = D_width;
+		/* ImmorTerm: Force absolute cursor positioning (same as LASTLINE) */
+		D_y = -1;
 		GotoPos(0, 0);
 		SetRendition(&mchar_null);
 		l = PrePutWinMsg(str, 0, l);
@@ -2145,9 +2180,23 @@ void ChangeScrollRegion(int newtop, int newbot)
 		newtop = 0;
 	if (newbot == -1)
 		newbot = D_height - 1;
+
+	/*
+	 * ImmorTerm: Protect hardstatus line from being included in scroll region.
+	 * When hardstatus is on the last line (HSTATUS_LASTLINE), the scroll region
+	 * must never include that line. Otherwise, scrolling operations will push
+	 * the status bar into the scrollback buffer, causing visible duplication
+	 * when using ti@:te@ (alternate screen buffer disabled for VS Code native
+	 * scrolling). This is a defensive clamp that catches all code paths.
+	 */
+	if (D_has_hstatus == HSTATUS_LASTLINE && newbot >= D_height - 1)
+		newbot = D_height - 2;
+	if (D_has_hstatus == HSTATUS_FIRSTLINE && newtop <= 0)
+		newtop = 1;
+
 	if (D_CS == NULL) {
-		D_top = 0;
-		D_bot = D_height - 1;
+		D_top = SCROLL_TOP_DEFAULT();
+		D_bot = SCROLL_BOT_DEFAULT();
 		return;
 	}
 	if (D_top == newtop && D_bot == newbot)
