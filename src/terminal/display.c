@@ -1681,6 +1681,7 @@ void ShowHStatus(char *str)
 		struct winsize ws;
 		int actual_width = D_width;
 		int actual_height = D_height;
+		int clear_width;
 		int target_row;
 
 		/* ImmorTerm: Get actual terminal size to prevent wrapping during resize.
@@ -1694,6 +1695,12 @@ void ShowHStatus(char *str)
 				actual_height = ws.ws_row;
 		}
 
+		/* ImmorTerm: Don't render status bar if terminal is too narrow.
+		 * A status bar in < 20 columns is useless and causes artifacts.
+		 */
+		if (actual_width < 20)
+			return;
+
 		/* Target row is last line of actual terminal, not D_height */
 		target_row = actual_height - 1;
 		if (target_row < 0)
@@ -1701,6 +1708,18 @@ void ShowHStatus(char *str)
 
 		ox = D_x;
 		oy = D_y;
+
+		/* ImmorTerm: Clear entire row first to prevent artifacts.
+		 * Use max of D_width and actual_width to catch any residual content
+		 * from previous renders at different widths.
+		 */
+		clear_width = (D_width > actual_width) ? D_width : actual_width;
+		D_y = -1;
+		GotoPos(0, target_row);
+		SetRendition(&mchar_null);
+		ClearArea(0, target_row, 0, clear_width - 1, clear_width - 1, target_row, 0, 0);
+
+		/* Now render the status bar content */
 		str = str ? str : "";
 		l = strlen(str);
 		if (l > actual_width)
@@ -1714,7 +1733,6 @@ void ShowHStatus(char *str)
 		 */
 		D_y = -1;
 		GotoPos(0, target_row);
-		SetRendition(&mchar_null);
 		l = PrePutWinMsg(str, 0, l);
 		if (!captionalways && D_cvlist && !D_cvlist->c_next)
 			while (l++ < actual_width)
@@ -1728,6 +1746,7 @@ void ShowHStatus(char *str)
 	} else if (D_has_hstatus == HSTATUS_FIRSTLINE) {
 		struct winsize ws;
 		int actual_width = D_width;
+		int clear_width;
 
 		/* ImmorTerm: Get actual terminal size to prevent wrapping during resize */
 		if (ioctl(D_userfd, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0) {
@@ -1735,8 +1754,21 @@ void ShowHStatus(char *str)
 				actual_width = ws.ws_col;
 		}
 
+		/* ImmorTerm: Don't render status bar if terminal is too narrow */
+		if (actual_width < 20)
+			return;
+
 		ox = D_x;
 		oy = D_y;
+
+		/* ImmorTerm: Clear entire row first to prevent artifacts */
+		clear_width = (D_width > actual_width) ? D_width : actual_width;
+		D_y = -1;
+		GotoPos(0, 0);
+		SetRendition(&mchar_null);
+		ClearArea(0, 0, 0, clear_width - 1, clear_width - 1, 0, 0, 0);
+
+		/* Now render the status bar content */
 		str = str ? str : "";
 		l = strlen(str);
 		if (l > actual_width)
@@ -1744,7 +1776,6 @@ void ShowHStatus(char *str)
 		/* ImmorTerm: Force absolute cursor positioning (same as LASTLINE) */
 		D_y = -1;
 		GotoPos(0, 0);
-		SetRendition(&mchar_null);
 		l = PrePutWinMsg(str, 0, l);
 		if (!captionalways || (D_cvlist && !D_cvlist->c_next))
 			while (l++ < actual_width)
