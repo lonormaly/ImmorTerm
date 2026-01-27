@@ -1646,8 +1646,10 @@ void ShowHStatus(char *str)
 
 	if (D_status == STATUS_ON_WIN && (D_has_hstatus == HSTATUS_FIRSTLINE || D_has_hstatus == HSTATUS_LASTLINE) && STATLINE() == D_height - 1)
 		return;		/* sorry, in use */
-	if (D_blocked)
+	if (D_blocked) {
+		D_hstatus_pending = 1;	/* defer refresh until D_blocked clears */
 		return;
+	}
 
 	if (D_HS && D_has_hstatus == HSTATUS_HS) {
 		if (!D_hstatus && (str == NULL || *str == 0))
@@ -2505,6 +2507,11 @@ static void disp_writeev_fn(Event *event, void *data)
 			D_blocked = 0;
 			Activate(D_fore ? D_fore->w_norefresh : 0);
 			D_blocked_fuzz = D_obufp - D_obuf;
+			/* Check for deferred hardstatus refresh (resize during D_blocked) */
+			if (D_hstatus_pending) {
+				D_hstatus_pending = 0;
+				RefreshHStatus();
+			}
 		}
 	} else {
 		/* linux flow control is badly broken */

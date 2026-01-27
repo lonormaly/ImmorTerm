@@ -183,6 +183,7 @@ struct Display {
 #endif
 	int   d_blocked;
 	int   d_blocked_fuzz;
+	int   d_hstatus_pending;	/* hardstatus refresh needed after D_blocked clears */
 	Event d_idleev;		/* screen blanker */
 	pid_t   d_blankerpid;
 	Event d_blankerev;
@@ -299,6 +300,7 @@ struct Display {
 #define D_mapev		DISPLAY(d_mapev)
 #define D_blocked	DISPLAY(d_blocked)
 #define D_blocked_fuzz	DISPLAY(d_blocked_fuzz)
+#define D_hstatus_pending	DISPLAY(d_hstatus_pending)
 #define D_idleev	DISPLAY(d_idleev)
 #define D_blankerev	DISPLAY(d_blankerev)
 #define D_blankerpid	DISPLAY(d_blankerpid)
