@@ -59,14 +59,9 @@ enum {
 	CSI_ESC_SEEN, CSI_BEGIN, CSI_INACTIVE, CSI_INVALID
 };
 
-/*
- * Helper macros for computing scroll region bounds that account for hardstatus.
- * When hardstatus is displayed on the first or last line, the scroll region
- * must exclude that line to prevent the hardstatus from being scrolled into
- * the terminal's scroll buffer (which causes visible duplication with ti@:te@).
- */
-#define SCROLL_TOP_DEFAULT() ((D_has_hstatus == HSTATUS_FIRSTLINE) ? 1 : 0)
-#define SCROLL_BOT_DEFAULT() ((D_has_hstatus == HSTATUS_LASTLINE) ? D_height - 2 : D_height - 1)
+/* Stock screen 5.0.1 behavior - no special scroll region handling for hardstatus */
+#define SCROLL_TOP_DEFAULT() 0
+#define SCROLL_BOT_DEFAULT() (D_height - 1)
 
 static int CountChars(int);
 static int DoAddChar(int);
