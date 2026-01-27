@@ -1651,30 +1651,13 @@ void ShowHStatus(char *str)
 		return;
 	}
 
-	/* Guard against rendering to stale coordinates during rapid resize.
-	 * During continuous window resize, the terminal size may have changed
-	 * since we last queried it. If we render at D_height-1 but the terminal
-	 * is now smaller, the cursor position may wrap or clip, causing the
-	 * status bar to appear at the wrong row (often row 0). Skip rendering
-	 * if size mismatch detected - next SIGWINCH will trigger proper redisplay.
-	 *
-	 * ImmorTerm enhancement: Flush output buffer before checking to ensure
-	 * any pending terminal operations complete, reducing race window.
+	/* ImmorTerm: Handle size mismatch during resize.
+	 * During rapid resize, the terminal size may differ from D_width/D_height.
+	 * Instead of skipping rendering (leaving blank status), we:
+	 * 1. Get the actual terminal size
+	 * 2. Use the SMALLER of D_width and actual width for rendering
+	 * 3. This prevents wrapping while still showing the status bar
 	 */
-	if (D_has_hstatus == HSTATUS_LASTLINE || D_has_hstatus == HSTATUS_FIRSTLINE) {
-		struct winsize ws;
-		/* Flush to reduce race window between check and render */
-		Flush(3);
-		if (ioctl(D_userfd, TIOCGWINSZ, &ws) == 0) {
-			if (ws.ws_row != D_height || ws.ws_col != D_width) {
-				return;  /* Size changed, defer to next resize event */
-			}
-			/* Additional sanity check: ensure target row exists */
-			if (D_has_hstatus == HSTATUS_LASTLINE && D_height - 1 >= ws.ws_row) {
-				return;  /* Target row beyond terminal bounds */
-			}
-		}
-	}
 
 	if (D_HS && D_has_hstatus == HSTATUS_HS) {
 		if (!D_hstatus && (str == NULL || *str == 0))
@@ -1695,12 +1678,33 @@ void ShowHStatus(char *str)
 		AddCStr(D_FS);
 		D_hstatus = true;
 	} else if (D_has_hstatus == HSTATUS_LASTLINE) {
+		struct winsize ws;
+		int actual_width = D_width;
+		int actual_height = D_height;
+		int target_row;
+
+		/* ImmorTerm: Get actual terminal size to prevent wrapping during resize.
+		 * Use the SMALLER of D_width and actual terminal width for rendering.
+		 * This ensures status bar never exceeds terminal width, preventing wrap.
+		 */
+		if (ioctl(D_userfd, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0) {
+			if (ws.ws_col < actual_width)
+				actual_width = ws.ws_col;
+			if (ws.ws_row < actual_height)
+				actual_height = ws.ws_row;
+		}
+
+		/* Target row is last line of actual terminal, not D_height */
+		target_row = actual_height - 1;
+		if (target_row < 0)
+			return;
+
 		ox = D_x;
 		oy = D_y;
 		str = str ? str : "";
 		l = strlen(str);
-		if (l > D_width)
-			l = D_width;
+		if (l > actual_width)
+			l = actual_width;
 		/* ImmorTerm: Force absolute cursor positioning for status bar.
 		 * Setting D_y = -1 ensures GotoPos sends an explicit positioning
 		 * command rather than returning early when D_x/D_y happen to match
@@ -1709,35 +1713,44 @@ void ShowHStatus(char *str)
 		 * (e.g., during resize or after OSC title changes).
 		 */
 		D_y = -1;
-		GotoPos(0, D_height - 1);
+		GotoPos(0, target_row);
 		SetRendition(&mchar_null);
 		l = PrePutWinMsg(str, 0, l);
 		if (!captionalways && D_cvlist && !D_cvlist->c_next)
-			while (l++ < D_width)
+			while (l++ < actual_width)
 				PUTCHARLP(' ');
-		if (l < D_width)
-			ClearArea(l, D_height - 1, l, D_width - 1, D_width - 1, D_height - 1, 0, 0);
+		if (l < actual_width)
+			ClearArea(l, target_row, l, actual_width - 1, actual_width - 1, target_row, 0, 0);
 		if (ox != -1 && oy != -1)
 			GotoPos(ox, oy);
 		D_hstatus = (str != NULL);
 		SetRendition(&mchar_null);
 	} else if (D_has_hstatus == HSTATUS_FIRSTLINE) {
+		struct winsize ws;
+		int actual_width = D_width;
+
+		/* ImmorTerm: Get actual terminal size to prevent wrapping during resize */
+		if (ioctl(D_userfd, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0) {
+			if (ws.ws_col < actual_width)
+				actual_width = ws.ws_col;
+		}
+
 		ox = D_x;
 		oy = D_y;
 		str = str ? str : "";
 		l = strlen(str);
-		if (l > D_width)
-			l = D_width;
+		if (l > actual_width)
+			l = actual_width;
 		/* ImmorTerm: Force absolute cursor positioning (same as LASTLINE) */
 		D_y = -1;
 		GotoPos(0, 0);
 		SetRendition(&mchar_null);
 		l = PrePutWinMsg(str, 0, l);
 		if (!captionalways || (D_cvlist && !D_cvlist->c_next))
-			while (l++ < D_width)
+			while (l++ < actual_width)
 				PUTCHARLP(' ');
-		if (l < D_width)
-			ClearArea(l, 0, l, D_width - 1, D_width - 1, 0, 0, 0);
+		if (l < actual_width)
+			ClearArea(l, 0, l, actual_width - 1, actual_width - 1, 0, 0, 0);
 		if (ox != -1 && oy != -1)
 			GotoPos(ox, oy);
 		D_hstatus = (str != NULL);
