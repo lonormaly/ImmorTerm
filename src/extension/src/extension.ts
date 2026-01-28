@@ -34,6 +34,7 @@ import {
   trackTerminalName,
   checkAndSyncNameChange,
   generateNextName,
+  isModifiableName,
 } from './terminal';
 import { WorkspaceStorage } from './storage/workspace-state';
 import {
@@ -50,6 +51,7 @@ import { screenCommands } from './utils/screen-commands';
 import { initJsonUtils, updateJsonNameAndCommand, updateJsonTheme, getAllTerminalsFromJson } from './json-utils';
 import { initClaudeSync, syncClaudeSessions } from './claude-sync';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
 
 // Track command-initiated renames to prevent onDidChangeTerminalState from reverting
@@ -158,6 +160,152 @@ async function syncUserRename(
 }
 
 /**
+ * Sync a title notification from ImmorTerm C code to storage and screen.
+ * Called when OSC 777;immorterm;title notification is received.
+ */
+async function syncTerminalTitle(
+  windowId: string,
+  newTitle: string,
+  terminalManager: TerminalManager
+): Promise<void> {
+  const storage = terminalManager.getStorage();
+
+  // Update storage
+  await storage.updateTerminal(windowId, { name: newTitle });
+  updateJsonNameAndCommand(windowId, newTitle);
+
+  // Update screen title (w_title) - no date prefix
+  const projectName = terminalManager.getProjectName();
+  const sessionName = `${projectName}-${windowId}`;
+
+  try {
+    await screenCommands.setWindowTitle(sessionName, newTitle);
+    logger.debug(`Synced title to screen: "${newTitle}"`);
+  } catch (error) {
+    logger.debug(`Could not sync title to screen:`, error);
+  }
+}
+
+// Track active title file watchers to clean up on deactivation
+const titleFileWatchers = new Map<string, fsSync.FSWatcher>();
+
+/**
+ * Set up file watchers for title change notifications from ImmorTerm C code.
+ * C code writes to /tmp/immorterm-title-{sessionname} when title changes.
+ * Uses OS-native kqueue/inotify for event-driven notifications (no polling).
+ */
+function setupTitleFileWatchers(terminalManager: TerminalManager): void {
+  const projectName = terminalManager.getProjectName();
+
+  // Watch for all tracked terminals
+  for (const terminal of terminalManager.getAllTerminals()) {
+    const windowId = terminal.windowId;
+    if (!windowId) continue;
+
+    const sessionName = `${projectName}-${windowId}`;
+    watchTitleFile(sessionName, windowId, terminalManager);
+  }
+
+  logger.debug('Title file watchers initialized');
+}
+
+/**
+ * Watch a single title file for changes.
+ */
+function watchTitleFile(sessionName: string, windowId: string, terminalManager: TerminalManager): void {
+  const titlePath = `/tmp/immorterm-title-${sessionName}`;
+
+  // Don't create duplicate watchers
+  if (titleFileWatchers.has(sessionName)) {
+    return;
+  }
+
+  // Create watcher (will be created when file appears)
+  const startWatcher = () => {
+    try {
+      const watcher = fsSync.watch(titlePath, async (eventType) => {
+        if (eventType === 'change') {
+          try {
+            const content = await fs.readFile(titlePath, 'utf-8');
+            const newTitle = content.trim();
+
+            if (newTitle) {
+              const storedTerminal = terminalManager.getTerminalByWindowId(windowId);
+
+              // Only sync if name is modifiable (not user's custom name)
+              if (storedTerminal && isModifiableName(storedTerminal.name, storedTerminal.claudeSessionId)) {
+                logger.debug(`Title file notification: "${newTitle}" for window ${windowId}`);
+                await syncTerminalTitle(windowId, newTitle, terminalManager);
+              } else {
+                logger.debug(`Ignoring title file notification - name not modifiable: "${storedTerminal?.name}"`);
+              }
+            }
+          } catch (readErr) {
+            // File may have been deleted, ignore
+          }
+        }
+      });
+
+      titleFileWatchers.set(sessionName, watcher);
+      logger.debug(`Watching title file: ${titlePath}`);
+    } catch (err) {
+      // File doesn't exist yet, retry later when terminal writes to it
+      setTimeout(startWatcher, 1000);
+    }
+  };
+
+  // Check if file exists before watching
+  fsSync.access(titlePath, fsSync.constants.F_OK, (err) => {
+    if (!err) {
+      startWatcher();
+    } else {
+      // File doesn't exist, wait for it to be created
+      // We'll retry periodically until the file appears
+      const retryInterval = setInterval(() => {
+        fsSync.access(titlePath, fsSync.constants.F_OK, (accessErr) => {
+          if (!accessErr) {
+            clearInterval(retryInterval);
+            startWatcher();
+          }
+        });
+      }, 1000);
+
+      // Stop retrying after 30 seconds (terminal may not have been started yet)
+      setTimeout(() => clearInterval(retryInterval), 30000);
+    }
+  });
+}
+
+/**
+ * Add a title file watcher for a newly created terminal.
+ * Called when a new terminal is created.
+ */
+export function addTitleFileWatcher(windowId: string, terminalManager: TerminalManager): void {
+  const projectName = terminalManager.getProjectName();
+  const sessionName = `${projectName}-${windowId}`;
+  watchTitleFile(sessionName, windowId, terminalManager);
+}
+
+/**
+ * Remove a title file watcher when terminal is closed.
+ */
+export function removeTitleFileWatcher(windowId: string, terminalManager: TerminalManager): void {
+  const projectName = terminalManager.getProjectName();
+  const sessionName = `${projectName}-${windowId}`;
+
+  const watcher = titleFileWatchers.get(sessionName);
+  if (watcher) {
+    watcher.close();
+    titleFileWatchers.delete(sessionName);
+    logger.debug(`Closed title file watcher for ${sessionName}`);
+  }
+
+  // Clean up the temp file
+  const titlePath = `/tmp/immorterm-title-${sessionName}`;
+  fs.unlink(titlePath).catch(() => { /* ignore if doesn't exist */ });
+}
+
+/**
  * Generates a unique window ID in the same format as screen-auto
  * Format: {pid}-{8-char-random}
  */
@@ -262,12 +410,10 @@ let disposables: vscode.Disposable[] = [];
 let staleCleanupTimer: NodeJS.Timeout | null = null;
 let logCleanupTimer: NodeJS.Timeout | null = null;
 let claudeSyncTimer: NodeJS.Timeout | null = null;
-let titleSyncTimer: NodeJS.Timeout | null = null;
 
 // Cleanup intervals (in milliseconds)
 const STALE_CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 hour
 const LOG_CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 hour
-const TITLE_SYNC_INTERVAL = 2000; // 2 seconds - fast for responsive title sync
 
 /**
  * Schedules periodic cleanup tasks
@@ -343,11 +489,12 @@ function cancelScheduledCleanup(): void {
     logger.debug('Cancelled Claude sync timer');
   }
 
-  if (titleSyncTimer) {
-    clearInterval(titleSyncTimer);
-    titleSyncTimer = null;
-    logger.debug('Cancelled title sync timer');
+  // Close all title file watchers
+  for (const [sessionName, watcher] of titleFileWatchers) {
+    watcher.close();
+    logger.debug(`Closed title file watcher for ${sessionName}`);
   }
+  titleFileWatchers.clear();
 }
 
 /**
@@ -1096,6 +1243,7 @@ function subscribeToTerminalEvents(
     const envWindowId = opts?.env?.IMMORTERM_WINDOW_ID;
     if (envWindowId) {
       terminalManager.trackTerminal(terminal, envWindowId);
+      addTitleFileWatcher(envWindowId, terminalManager);
       logger.info('Tracked terminal by env var:', envWindowId);
       return;
     }
@@ -1109,6 +1257,7 @@ function subscribeToTerminalEvents(
     if (terminalState) {
       // Found matching terminal in storage - track it!
       terminalManager.trackTerminal(terminal, terminalState.windowId);
+      addTitleFileWatcher(terminalState.windowId, terminalManager);
       logger.info('Tracked new terminal by name:', terminal.name, '->', terminalState.windowId);
     } else {
       // Terminal not in storage yet - might be reconciled later via pending file
@@ -1118,6 +1267,7 @@ function subscribeToTerminalEvents(
           const retryState = storage.getTerminalByName(terminal.name);
           if (retryState) {
             terminalManager.trackTerminal(terminal, retryState.windowId);
+            addTitleFileWatcher(retryState.windowId, terminalManager);
             logger.info('Tracked terminal after delay:', terminal.name, '->', retryState.windowId);
           }
         }
@@ -1142,6 +1292,9 @@ function subscribeToTerminalEvents(
       // Clear restored terminal tracking (if within grace period)
       restoredTerminals.delete(windowId);
 
+      // Remove title file watcher
+      removeTitleFileWatcher(windowId, terminalManager);
+
       // Schedule cleanup with grace period (prevents accidental cleanup during VS Code reload)
       // The logsDir is captured from the outer scope (initResult)
       if (initResult?.logsDir) {
@@ -1159,6 +1312,10 @@ function subscribeToTerminalEvents(
   });
   context.subscriptions.push(onDidCloseTerminal);
   disposables.push(onDidCloseTerminal);
+
+  // Set up file watchers for title change notifications from ImmorTerm C code
+  // C code writes to /tmp/immorterm-title-{sessionname} when title changes
+  setupTitleFileWatchers(terminalManager);
 
   // Track terminal state changes (may include name changes)
   const onDidChangeTerminalState = vscode.window.onDidChangeTerminalState(
@@ -1447,27 +1604,8 @@ export async function activate(
   // Schedule periodic cleanup tasks
   schedulePeriodicCleanup(terminalManager.getStorage(), logsDir);
 
-  // Start title sync polling - checks for name changes from OSC sequences (e.g., Claude)
-  // This is needed because onDidChangeTerminalState doesn't fire for OSC title changes
-  titleSyncTimer = setInterval(async () => {
-    const storage = terminalManager.getStorage();
-
-    for (const terminal of vscode.window.terminals) {
-      const windowId = terminalManager.getWindowIdForTerminal(terminal);
-      if (windowId) {
-        const storedTerminal = storage.getTerminal(windowId);
-        if (storedTerminal && storedTerminal.name !== terminal.name) {
-          // Skip if this was a command-initiated rename
-          if (shouldSkipVsCodeSync(windowId, terminal.name, storedTerminal.name)) {
-            continue;
-          }
-          logger.debug(`Title sync detected name change: "${storedTerminal.name}" -> "${terminal.name}"`);
-          await syncUserRename(windowId, terminal.name, terminalManager);
-        }
-      }
-    }
-  }, TITLE_SYNC_INTERVAL);
-  logger.debug('Started title sync polling every', TITLE_SYNC_INTERVAL / 1000, 'seconds');
+  // Title sync is now event-driven via onDidWriteTerminalData
+  // (no more polling - C code echoes OSC 777;immorterm;title notifications)
 
   // Log activation summary
   logger.info('ImmorTerm activated', {

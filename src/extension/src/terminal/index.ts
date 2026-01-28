@@ -17,6 +17,7 @@ export {
   isImmorTermTerminal,
   setScreenAvailable,
   isScreenAvailable,
+  isModifiableName,
   type CreateTerminalOptions,
 } from './screen-integration';
 

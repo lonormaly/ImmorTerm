@@ -23,9 +23,12 @@
     "name": "lonormaly"
   },
   "engines": {
-    "vscode": "^1.74.0"
+    "vscode": "^1.93.0"
   },
-  "categories": ["Other", "Terminal"],
+  "categories": [
+    "Other",
+    "Terminal"
+  ],
   "keywords": [
     "terminal",
     "persistence",
@@ -38,7 +41,9 @@
     "gnu-screen",
     "tmux-alternative"
   ],
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -291,8 +296,8 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/vscode": "^1.74.0",
     "@types/node": "^18.0.0",
+    "@types/vscode": "^1.108.1",
     "typescript": "^5.0.0"
   }
 }

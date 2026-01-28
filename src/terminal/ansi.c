@@ -1331,16 +1331,21 @@ static int StringEnd(Window *win)
 		if (win->w_string != win->w_stringp)
 			win->w_hstatus = SaveStr(win->w_string);
 		/* ImmorTerm: Write title notification to temp file for VS Code extension.
-		 * File: /tmp/immorterm-title-{socketname}
+		 * File: /tmp/immorterm-title-{sessionname}
 		 * Format: {title}\n
+		 * Note: SocketName format is "PID.sessionname", we need just sessionname
 		 */
 		if (win->w_hstatus && *win->w_hstatus && SocketName && *SocketName) {
 			char title_path[MAXPATHLEN];
-			snprintf(title_path, sizeof(title_path), "/tmp/immorterm-title-%s", SocketName);
-			FILE *f = fopen(title_path, "w");
-			if (f) {
-				fprintf(f, "%s\n", win->w_hstatus);
-				fclose(f);
+			const char *session_name = strchr(SocketName, '.');
+			if (session_name) {
+				session_name++;  /* skip the dot */
+				snprintf(title_path, sizeof(title_path), "/tmp/immorterm-title-%s", session_name);
+				FILE *f = fopen(title_path, "w");
+				if (f) {
+					fprintf(f, "%s\n", win->w_hstatus);
+					fclose(f);
+				}
 			}
 		}
 		WindowChanged(win, WINESC_HSTATUS);
@@ -1866,16 +1871,21 @@ void ChangeAKA(Window *win, char *s, size_t len)
 		if (win->w_akachange[0] == 0 || win->w_akachange[-1] == ':')
 			win->w_title = win->w_akabuf + strlen(win->w_akabuf) + 1;
 	/* ImmorTerm: Write title notification to temp file for VS Code extension.
-	 * File: /tmp/immorterm-title-{socketname}
+	 * File: /tmp/immorterm-title-{sessionname}
 	 * Format: {title}\n
+	 * Note: SocketName format is "PID.sessionname", we need just sessionname
 	 */
 	if (win->w_title && *win->w_title && SocketName && *SocketName) {
 		char title_path[MAXPATHLEN];
-		snprintf(title_path, sizeof(title_path), "/tmp/immorterm-title-%s", SocketName);
-		FILE *f = fopen(title_path, "w");
-		if (f) {
-			fprintf(f, "%s\n", win->w_title);
-			fclose(f);
+		const char *session_name = strchr(SocketName, '.');
+		if (session_name) {
+			session_name++;  /* skip the dot */
+			snprintf(title_path, sizeof(title_path), "/tmp/immorterm-title-%s", session_name);
+			FILE *f = fopen(title_path, "w");
+			if (f) {
+				fprintf(f, "%s\n", win->w_title);
+				fclose(f);
+			}
 		}
 	}
 	WindowChanged(win, WINESC_WIN_TITLE);

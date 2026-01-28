@@ -40,21 +40,6 @@ const terminalLastNames = new WeakMap<vscode.Terminal, string>();
 const pendingNames = new Set<string>();
 
 /**
- * Generates a date prefix for screen titles
- * Format: DD/MM-HH:MM
- *
- * @returns Formatted date string
- */
-function getDatePrefix(): string {
-  const now = new Date();
-  const dd = String(now.getDate()).padStart(2, '0');
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const hh = String(now.getHours()).padStart(2, '0');
-  const min = String(now.getMinutes()).padStart(2, '0');
-  return `${dd}/${mm}-${hh}:${min}`;
-}
-
-/**
  * Checks if a name appears to be a raw windowId format
  * Raw format: "12345-abcdef12" (PID-randomhex)
  *
@@ -182,9 +167,9 @@ export async function syncTerminalName(
     return false;
   }
 
-  // Update Screen title (with date prefix)
+  // Update Screen title (no date prefix - clean name only)
   const sessionName = buildSessionName(projectName, windowId);
-  const screenTitle = `${getDatePrefix()} ${name}`;
+  const screenTitle = name;
 
   try {
     await screenCommands.sendCommand(sessionName, '');
@@ -288,9 +273,9 @@ export async function autoRenameIfNeeded(
   // Update storage with new name
   await storage.updateTerminal(windowId, { name: newName });
 
-  // Update Screen title
+  // Update Screen title (no date prefix - clean name only)
   const sessionName = buildSessionName(projectName, windowId);
-  const screenTitle = `${getDatePrefix()} ${newName}`;
+  const screenTitle = newName;
 
   try {
     const { exec } = require('child_process');
