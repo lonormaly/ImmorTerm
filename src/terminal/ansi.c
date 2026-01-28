@@ -33,6 +33,7 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/time.h>
 
 #include "screen.h"
 
@@ -1329,6 +1330,19 @@ static int StringEnd(Window *win)
 		}
 		if (win->w_string != win->w_stringp)
 			win->w_hstatus = SaveStr(win->w_string);
+		/* ImmorTerm: Write title notification to temp file for VS Code extension.
+		 * File: /tmp/immorterm-title-{socketname}
+		 * Format: {title}\n
+		 */
+		if (win->w_hstatus && *win->w_hstatus && SocketName && *SocketName) {
+			char title_path[MAXPATHLEN];
+			snprintf(title_path, sizeof(title_path), "/tmp/immorterm-title-%s", SocketName);
+			FILE *f = fopen(title_path, "w");
+			if (f) {
+				fprintf(f, "%s\n", win->w_hstatus);
+				fclose(f);
+			}
+		}
 		WindowChanged(win, WINESC_HSTATUS);
 		break;
 	case PM:
@@ -1851,6 +1865,19 @@ void ChangeAKA(Window *win, char *s, size_t len)
 	if (win->w_akachange != win->w_akabuf)
 		if (win->w_akachange[0] == 0 || win->w_akachange[-1] == ':')
 			win->w_title = win->w_akabuf + strlen(win->w_akabuf) + 1;
+	/* ImmorTerm: Write title notification to temp file for VS Code extension.
+	 * File: /tmp/immorterm-title-{socketname}
+	 * Format: {title}\n
+	 */
+	if (win->w_title && *win->w_title && SocketName && *SocketName) {
+		char title_path[MAXPATHLEN];
+		snprintf(title_path, sizeof(title_path), "/tmp/immorterm-title-%s", SocketName);
+		FILE *f = fopen(title_path, "w");
+		if (f) {
+			fprintf(f, "%s\n", win->w_title);
+			fclose(f);
+		}
+	}
 	WindowChanged(win, WINESC_WIN_TITLE);
 	WindowChanged(NULL, WINESC_WIN_NAMES);
 	WindowChanged(NULL, WINESC_WIN_NAMES_NOCUR);

@@ -567,7 +567,6 @@ winmsg_esc_ex(WinTitle, Window *win)
 {
 	if (!win)
 		return;
-
 	if (*wmbc_strcpy(wmbc, win->w_title))
 		wmc_set(cond);
 }
