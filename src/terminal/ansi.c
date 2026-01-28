@@ -101,6 +101,7 @@ static void DoCSI(Window *, int, int);
 static void StringStart(Window *, enum string_t);
 static void StringChar(Window *, int);
 static int StringEnd(Window *);
+static void UpdateWindowTitleOnly(Window *, char *, size_t);  /* ImmorTerm: title update without redraws */
 static void PrintStart(Window *);
 static void PrintChar(Window *, int);
 static void PrintFlush(Window *);
@@ -1315,6 +1316,12 @@ static int StringEnd(Window *win)
 		if (typ != 0 && typ != 2)
 			break;
 
+		/* ImmorTerm: Update window title (%t) from OSC 0/2 without triggering redraws.
+		 * The full redraw happens once via WindowChanged(WINESC_HSTATUS) in APC below.
+		 * This fixes stray characters during resize while preserving %t functionality.
+		 */
+		UpdateWindowTitleOnly(win, p, strlen(p));
+
 		win->w_stringp -= p - win->w_string;
 		if (win->w_stringp > win->w_string)
 			memmove(win->w_string, p, win->w_stringp - win->w_string);
@@ -1830,6 +1837,36 @@ static void FillWithEs(Window *win)
  *    ChangeAKA() sets a new aka
  *    FindAKA() searches for an autoaka match
  */
+
+/*
+ * ImmorTerm: UpdateWindowTitleOnly updates w_title without triggering WindowChanged.
+ * This is used for OSC 0/2 sequences to update %t in the hardstatus without
+ * causing rapid status bar redraws that create stray characters during resize.
+ * The actual redraw happens later via the single WindowChanged(WINESC_HSTATUS)
+ * in the APC fallthrough case.
+ */
+static void UpdateWindowTitleOnly(Window *win, char *s, size_t len)
+{
+	int i, c;
+
+	for (i = 0; len > 0; len--) {
+		if (win->w_akachange + i == win->w_akabuf + ARRAY_SIZE(win->w_akabuf) - 1)
+			break;
+		c = (unsigned char)*s++;
+		if (c == 0)
+			break;
+		/* ImmorTerm: Don't filter C1 bytes (128-159) in UTF-8 mode - they're valid UTF-8 continuation bytes */
+		if (c < 32 || c == 127 || (c >= 128 && c < 160 && win->w_c1 && win->w_encoding != UTF8))
+			continue;
+		win->w_akachange[i++] = c;
+	}
+	win->w_akachange[i] = 0;
+	win->w_title = win->w_akachange;
+	if (win->w_akachange != win->w_akabuf)
+		if (win->w_akachange[0] == 0 || win->w_akachange[-1] == ':')
+			win->w_title = win->w_akabuf + strlen(win->w_akabuf) + 1;
+	/* No WindowChanged calls - let APC fallthrough handle the single redraw */
+}
 
 void ChangeAKA(Window *win, char *s, size_t len)
 {
