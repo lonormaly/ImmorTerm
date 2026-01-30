@@ -389,7 +389,7 @@ int main(int argc, char **argv)
 				break;
 			}
 			if (ap[1] == '-' && !strncmp(ap, "--version", 9)) {
-				printf("ImmorTerm %s\n", version);
+				printf("ImmorTerm %s (built %s)\n", version, BUILD_DATE);
 				exit(0);
 			}
 			if (ap[1] == '-' && !strncmp(ap, "--help", 6))
@@ -610,7 +610,7 @@ int main(int argc, char **argv)
 					cmdflag = true;
 					break;
 				case 'v':
-					printf("ImmorTerm %s\n", version);
+					printf("ImmorTerm %s (built %s)\n", version, BUILD_DATE);
 					exit(0);
 				case 'U':
 					nwin_options.encoding = UTF8;

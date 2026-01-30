@@ -31,9 +31,9 @@
 #include "ansi.h"
 
 #include <sys/types.h>
+#include <sys/time.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
-#include <sys/time.h>
 
 #include "screen.h"
 
@@ -1330,24 +1330,30 @@ static int StringEnd(Window *win)
 		}
 		if (win->w_string != win->w_stringp)
 			win->w_hstatus = SaveStr(win->w_string);
-		/* ImmorTerm: Write title notification to temp file for VS Code extension.
-		 * File: /tmp/immorterm-title-{sessionname}
-		 * Format: {title}\n
-		 * Note: SocketName format is "PID.sessionname", we need just sessionname
+
+		/* ImmorTerm: Write title to file for VS Code extension IPC.
+		 * This is done here in APC (after the "not changed" check) so it
+		 * only writes when title actually changes, avoiding I/O during resize.
 		 */
 		if (win->w_hstatus && *win->w_hstatus && SocketName && *SocketName) {
 			char title_path[MAXPATHLEN];
-			const char *session_name = strchr(SocketName, '.');
+			char *session_name = strchr(SocketName, '.');
 			if (session_name) {
-				session_name++;  /* skip the dot */
-				snprintf(title_path, sizeof(title_path), "/tmp/immorterm-title-%s", session_name);
-				FILE *f = fopen(title_path, "w");
-				if (f) {
-					fprintf(f, "%s\n", win->w_hstatus);
-					fclose(f);
+				session_name++;  /* Skip the dot */
+				char *renames_dir = getenv("IMMORTERM_RENAMES_DIR");
+				if (renames_dir && *renames_dir) {
+					snprintf(title_path, sizeof(title_path), "%s/%s", renames_dir, session_name);
+				} else {
+					snprintf(title_path, sizeof(title_path), "/tmp/immorterm-title-%s", session_name);
+				}
+				int fd = open(title_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+				if (fd >= 0) {
+					write(fd, win->w_hstatus, strlen(win->w_hstatus));
+					close(fd);
 				}
 			}
 		}
+
 		WindowChanged(win, WINESC_HSTATUS);
 		break;
 	case PM:
@@ -1870,24 +1876,6 @@ void ChangeAKA(Window *win, char *s, size_t len)
 	if (win->w_akachange != win->w_akabuf)
 		if (win->w_akachange[0] == 0 || win->w_akachange[-1] == ':')
 			win->w_title = win->w_akabuf + strlen(win->w_akabuf) + 1;
-	/* ImmorTerm: Write title notification to temp file for VS Code extension.
-	 * File: /tmp/immorterm-title-{sessionname}
-	 * Format: {title}\n
-	 * Note: SocketName format is "PID.sessionname", we need just sessionname
-	 */
-	if (win->w_title && *win->w_title && SocketName && *SocketName) {
-		char title_path[MAXPATHLEN];
-		const char *session_name = strchr(SocketName, '.');
-		if (session_name) {
-			session_name++;  /* skip the dot */
-			snprintf(title_path, sizeof(title_path), "/tmp/immorterm-title-%s", session_name);
-			FILE *f = fopen(title_path, "w");
-			if (f) {
-				fprintf(f, "%s\n", win->w_title);
-				fclose(f);
-			}
-		}
-	}
 	WindowChanged(win, WINESC_WIN_TITLE);
 	WindowChanged(NULL, WINESC_WIN_NAMES);
 	WindowChanged(NULL, WINESC_WIN_NAMES_NOCUR);
