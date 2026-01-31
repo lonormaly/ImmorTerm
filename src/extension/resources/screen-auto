@@ -114,6 +114,9 @@ export IMMORTERM_SCREEN_BINARY="$SCREEN"  # Needed by screen-mem to detect paren
 export SCREEN_WINDOW_ID="$WINDOW"
 export SCREEN_WINDOW_NAME="$DISPLAY_NAME"
 export IMMORTERM_BASE_NAME="$DISPLAY_NAME"  # Immutable base name for title construction
+# IMMORTERM_RENAMES_DIR is set by VS Code extension (screen-integration.ts)
+# Re-export to ensure screen server process inherits it for title file notifications
+export IMMORTERM_RENAMES_DIR="${IMMORTERM_RENAMES_DIR:-$PROJECT_DIR/.vscode/terminals/renames}"
 
 # Log dump moved to NEW SESSION block only (see below).
 # For reattachment to existing sessions, screen's own scrollback is sufficient.
@@ -251,6 +254,8 @@ if [[ -z "$FULL_SESSION_ID" ]]; then
   # Set environment variables for backtick commands (screen's internal env, not shell env)
   # This is required because backticks query screen's internal environment table, NOT shell exports
   "$SCREEN" -S "$FULL_SESSION_ID" -X setenv IMMORTERM_SCREEN_BINARY "$SCREEN"
+  # Pass renames directory so C code writes title files to project-specific location
+  [[ -n "$IMMORTERM_RENAMES_DIR" ]] && "$SCREEN" -S "$FULL_SESSION_ID" -X setenv IMMORTERM_RENAMES_DIR "$IMMORTERM_RENAMES_DIR"
 
   # Note: shell-init.zsh is sourced automatically via ZDOTDIR/.zshrc (set in screenrc)
 
@@ -282,6 +287,8 @@ else
 
   # Ensure environment variable is set for backticks (may have been lost on screen restart)
   "$SCREEN" -S "$FULL_SESSION_ID" -X setenv IMMORTERM_SCREEN_BINARY "$SCREEN"
+  # Pass renames directory so C code writes title files to project-specific location
+  [[ -n "$IMMORTERM_RENAMES_DIR" ]] && "$SCREEN" -S "$FULL_SESSION_ID" -X setenv IMMORTERM_RENAMES_DIR "$IMMORTERM_RENAMES_DIR"
 fi
 
 # Set VS Code terminal tab name BEFORE exec screen
@@ -303,6 +310,15 @@ if [[ "$SKIP_CLEAR" != "true" ]]; then
   debug "Cleared scrollback buffer for $FULL_SESSION_ID"
 else
   debug "Skipped clear for Claude session $FULL_SESSION_ID"
+
+  # For Claude sessions: schedule a delayed hardstatus refresh after reattachment.
+  # This ensures the status bar is redrawn even if no resize occurs (same dimensions).
+  # The background job waits for attachment to complete, then forces a refresh.
+  (
+    sleep 0.3  # Wait for attachment to complete
+    "$SCREEN" -S "$FULL_SESSION_ID" -X redisplay 2>/dev/null
+    debug "Forced redisplay for Claude session $FULL_SESSION_ID"
+  ) &
 fi
 
 # Attach to the session using full session ID to avoid ambiguity
