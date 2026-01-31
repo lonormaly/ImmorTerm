@@ -1938,8 +1938,37 @@ static void DoCommandTitle(struct action *act)
 	}
 	if (*args == NULL)
 		InputAKA();
-	else
-		ChangeAKA(fore, *args, strlen(*args));
+	else {
+		/* ImmorTerm: Set title without triggering ChangeAKA's THREE WindowChanged calls.
+		 * This mirrors the fix for OSC 0/2 in ansi.c (commit e6d517c).
+		 * ChangeAKA triggers WINESC_WIN_TITLE, WINESC_WIN_NAMES, WINESC_WIN_NAMES_NOCUR,
+		 * which causes race conditions during resize when hstatusstring contains %t.
+		 */
+		char *s = *args;
+		size_t len = strlen(s);
+		int i, c;
+
+		/* Copy and filter the title string (same logic as ChangeAKA) */
+		for (i = 0; len > 0; len--) {
+			if (fore->w_akachange + i == fore->w_akabuf + ARRAY_SIZE(fore->w_akabuf) - 1)
+				break;
+			c = (unsigned char)*s++;
+			if (c == 0)
+				break;
+			/* ImmorTerm: Don't filter C1 bytes (128-159) in UTF-8 mode */
+			if (c < 32 || c == 127 || (c >= 128 && c < 160 && fore->w_c1 && fore->w_encoding != UTF8))
+				continue;
+			fore->w_akachange[i++] = c;
+		}
+		fore->w_akachange[i] = 0;
+		fore->w_title = fore->w_akachange;
+		if (fore->w_akachange != fore->w_akabuf)
+			if (fore->w_akachange[0] == 0 || fore->w_akachange[-1] == ':')
+				fore->w_title = fore->w_akabuf + strlen(fore->w_akabuf) + 1;
+
+		/* Single WindowChanged call instead of three */
+		WindowChanged(fore, WINESC_HSTATUS);
+	}
 }
 
 static void DoCommandColon(struct action *act)
