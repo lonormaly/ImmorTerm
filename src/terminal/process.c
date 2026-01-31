@@ -1966,8 +1966,11 @@ static void DoCommandTitle(struct action *act)
 			if (fore->w_akachange[0] == 0 || fore->w_akachange[-1] == ':')
 				fore->w_title = fore->w_akabuf + strlen(fore->w_akabuf) + 1;
 
-		/* Single WindowChanged call instead of three */
-		WindowChanged(fore, WINESC_HSTATUS);
+		/* Single WindowChanged call instead of three.
+		 * Use WINESC_WIN_TITLE because hstatusstring contains %t (window title).
+		 * ChangeAKA's three calls were: WINESC_WIN_TITLE, WINESC_WIN_NAMES, WINESC_WIN_NAMES_NOCUR
+		 * We only need the first one to refresh the hardstatus bar. */
+		WindowChanged(fore, WINESC_WIN_TITLE);
 	}
 }
 
